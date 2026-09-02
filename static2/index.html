@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=5.0">
+    <title>TaxCore AI | Autonomous CA Platform</title>
+    
+    <script src="https://kit.fontawesome.com/f5c9131898.js" crossorigin="anonymous"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;500;600;700&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+    <header id="mainHeader">
+        <div class="header-left">
+            <div class="logo-box">CA</div>
+            <div class="search-bar"><i class="fas fa-search"></i><span>Search tax codes, RAG models...</span></div>
+        </div>
+        <div class="header-center">
+            <div class="nav-item active">AGENT MAP</div>
+            <div class="nav-item">TAX COCKPIT</div>
+            <div class="nav-item">AUDIT LOGS</div>
+        </div>
+        <div class="header-right">
+            <button><i class="fas fa-robot"></i> Run Auto-Audit</button>
+        </div>
+    </header>
+
+    <div id="backBtn" onclick="setState('main')"><i class="fas fa-arrow-left"></i> ALL CA MODULES</div>
+    <div id="sideLeft" class="side-nav">TAXATION</div>
+    <div id="sideRight" class="side-nav">AUDITING</div>
+
+    <canvas id="networkCanvas"></canvas>
+
+    <div class="bottom-controls">
+        <button>?</button>
+        <button>-</button>
+        <button>100%</button>
+        <button>+</button>
+        <button>Fit</button>
+    </div>
+
+    <!-- Modal -->
+    <div class="modal-overlay" id="detailModal">
+        <div class="modal-content">
+            <h2 id="modalTitle">Module Name</h2>
+            <p id="modalDesc">Details regarding automated agent workflow.</p>
+            <button class="close-modal-btn" onclick="openChat()"> Question to database </button>
+        </div>
+    </div>
+
+    <!-- Chatbot UI Container -->
+    <div id="chatSidebar" class="chat-sidebar hidden">
+        <div class="chat-header">
+            <div><i class="fas fa-robot"></i> <span id="chatAgentName">AI Agent</span></div>
+            <button class="close-chat" onclick="closeChat()"><i class="fas fa-times"></i></button>
+        </div>
+        <div class="chat-box" id="chatBox">
+            <div class="message ai-message">Task initialized. How can I assist you with this module?</div>
+        </div>
+        <div class="chat-input-area">
+            <input type="text" id="userInput" placeholder="Ask the agent..." onkeypress="handleEnter(event)">
+            <!-- Voice Mic Button -->
+            <button id="micBtn" class="mic-btn" onclick="toggleRecording()" title="Voice Input">
+                <i class="fas fa-microphone"></i>
+            </button>
+            <button class="send-btn" onclick="sendMessage()"><i class="fas fa-paper-plane"></i></button>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>

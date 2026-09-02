@@ -1,0 +1,302 @@
+:root {
+    --bg-color: #080c14;
+    --text-main: #e2e8f0;
+    --text-muted: #64748b;
+    --accent-gold: #f59e0b;
+    
+    /* Core Node Colors for CA Modules */
+    --cat-blue: #38bdf8;    /* TAXATION */
+    --cat-green: #34d399;   /* AUDITING */
+    --cat-purple: #a78bfa;  /* COMPLIANCE */
+    --cat-amber: #f59e0b;   /* BOOKKEEPING */
+    --cat-pink: #f472b6;    /* ADVISORY RAG */
+    --cat-cyan: #06b6d4;    /* INTEGRATIONS */
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; user-select: none; }
+
+body, html {
+    width: 100%; height: 100%;
+    background-color: var(--bg-color);
+    overflow: hidden;
+    font-family: 'Inter', sans-serif;
+    color: var(--text-main);
+}
+
+/* --- Canvas --- */
+#networkCanvas {
+    position: absolute; top: 0; left: 0;
+    width: 100%; height: 100%;
+    z-index: 1; cursor: crosshair;
+}
+
+/* --- Header UI --- */
+header {
+    position: absolute; top: 0; left: 0; width: 100%;
+    padding: 1.5rem 3rem; display: flex;
+    justify-content: space-between; align-items: center;
+    z-index: 10; pointer-events: none;
+}
+
+.header-left, .header-right { pointer-events: auto; }
+.header-center {
+    display: flex; gap: 2rem; background: rgba(0, 0, 0, 0.5);
+    padding: 0.5rem 2rem; border-radius: 30px;
+    border: 1px solid rgba(255, 255, 255, 0.08); pointer-events: auto;
+    backdrop-filter: blur(8px);
+}
+
+.logo-box {
+    width: 40px; height: 40px; background: rgba(245, 158, 11, 0.15);
+    border-radius: 8px; display: flex; justify-content: center; align-items: center;
+    border: 1px solid rgba(245, 158, 11, 0.4); font-family: 'Cinzel', serif; font-weight: bold; font-size: 1.1rem;
+    float: left; margin-right: 15px; color: var(--accent-gold);
+}
+
+.search-bar {
+    background: rgba(0, 0, 0, 0.4); border: 1px solid rgba(255, 255, 255, 0.08);
+    padding: 0.5rem 1rem; border-radius: 8px; display: flex; align-items: center;
+    gap: 0.5rem; color: var(--text-muted); width: 280px; float: left;
+    font-size: 0.85rem;
+}
+
+.nav-item {
+    font-size: 0.75rem; letter-spacing: 2px; text-transform: uppercase;
+    color: var(--text-muted); cursor: pointer; transition: color 0.3s; font-weight: 500;
+}
+.nav-item.active {
+    color: #f8fafc; background: rgba(255,255,255,0.08); padding: 0.2rem 0.8rem; border-radius: 15px;
+}
+
+.header-right button {
+    background: var(--accent-gold); color: #0f172a; border: none; padding: 0.6rem 1.2rem;
+    border-radius: 8px; font-weight: 600; font-size: 0.85rem; cursor: pointer; display: flex; align-items: center; gap: 0.5rem;
+    transition: transform 0.2s, background 0.2s;
+}
+.header-right button:hover {
+    background: #fbbf24; transform: translateY(-1px);
+}
+
+/* --- Tree View Overlays --- */
+#backBtn {
+    position: absolute; top: 6rem; left: 3rem;
+    color: var(--text-muted); font-size: 0.85rem; letter-spacing: 2px;
+    cursor: pointer; z-index: 10; display: none; align-items: center; gap: 0.5rem;
+    pointer-events: auto; text-transform: uppercase; font-weight: 500;
+    transition: color 0.2s;
+}
+#backBtn:hover { color: white; }
+
+.side-nav {
+    position: absolute; top: 50%; transform: translateY(-50%);
+    color: rgba(255,255,255,0.15); font-family: 'Cinzel', serif; font-size: 1.5rem;
+    letter-spacing: 5px; z-index: 5; writing-mode: vertical-rl; text-orientation: mixed;
+    display: none; cursor: pointer; transition: color 0.3s;
+}
+.side-nav:hover { color: rgba(255,255,255,0.5); }
+#sideLeft { left: 2rem; transform: translateY(-50%) rotate(180deg); }
+#sideRight { right: 2rem; }
+
+/* --- Bottom Controls --- */
+.bottom-controls {
+    position: absolute; bottom: 2rem; right: 3rem; display: flex;
+    background: rgba(0,0,0,0.5); border-radius: 8px; border: 1px solid rgba(255,255,255,0.05);
+    pointer-events: auto; z-index: 10;
+}
+.bottom-controls button {
+    background: none; border: none; color: var(--text-muted); padding: 0.5rem 1rem;
+    cursor: pointer; font-family: 'Inter', sans-serif; border-right: 1px solid rgba(255,255,255,0.05);
+}
+.bottom-controls button:last-child { border: none; }
+.bottom-controls button:hover { color: white; background: rgba(255,255,255,0.05); }
+
+/* --- Content Modal --- */
+.modal-overlay {
+    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+    background: rgba(0, 0, 0, 0.75); backdrop-filter: blur(6px);
+    z-index: 100; display: flex; justify-content: center; align-items: center;
+    opacity: 0; pointer-events: none; transition: opacity 0.3s ease;
+}
+.modal-overlay.active { opacity: 1; pointer-events: auto; }
+.modal-content {
+    background: #0f1420; border: 1px solid rgba(245, 158, 11, 0.3);
+    width: 480px; border-radius: 12px; padding: 2.5rem; box-shadow: 0 25px 50px rgba(0,0,0,0.9);
+    text-align: center;
+}
+.modal-content h2 { color: var(--text-main); margin-bottom: 1rem; font-family: 'Cinzel', serif; letter-spacing: 2px;}
+.modal-content p { color: var(--text-muted); font-size: 0.95rem; margin-bottom: 2rem; line-height: 1.6; }
+.close-modal-btn {
+    background: var(--accent-gold); color: #000; border: none;
+    padding: 0.6rem 2rem; border-radius: 5px; cursor: pointer; font-weight: 600;
+}
+
+/* Chatbot Sidebar Styles */
+/* --- UPDATED Chatbot Sidebar Styles (Half Page) --- */
+.chat-sidebar {
+    position: fixed;
+    right: 0;
+    top: 0;
+    width: 50vw; /* Takes up exactly 50% of the screen width */
+    min-width: 400px; /* Ensures it doesn't get too thin on smaller monitors */
+    max-width: 100%; /* Prevents it from overflowing on mobile */
+    height: 100vh;
+    background: #0f172a; /* Dark sleek background */
+    border-left: 1px solid #1e293b;
+    box-shadow: -10px 0 30px rgba(0,0,0,0.6);
+    display: flex;
+    flex-direction: column;
+    transform: translateX(100%); /* Hides it completely off-screen to the right */
+    transition: transform 0.4s cubic-bezier(0.25, 0.8, 0.25, 1); /* Smoother slide animation */
+    z-index: 1000;
+}
+
+.chat-sidebar.active {
+    transform: translateX(0); /* Slides it perfectly into view */
+}
+
+.chat-header {
+    padding: 25px 30px; /* Slightly larger padding for the bigger window */
+    background: #1e293b;
+    color: #fff;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid #334155;
+    font-family: 'Cinzel', serif;
+    font-size: 1.2rem;
+}
+
+.close-chat {
+    background: none;
+    border: none;
+    color: #94a3b8;
+    font-size: 24px;
+    cursor: pointer;
+    transition: color 0.2s;
+}
+
+.close-chat:hover {
+    color: #ef4444; /* Turns red when hovered */
+}
+
+.chat-box {
+    flex-grow: 1;
+    padding: 30px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 20px; /* More space between messages */
+}
+
+.message {
+    padding: 15px 20px;
+    border-radius: 8px;
+    max-width: 75%; /* Prevents long lines of text from stretching too far */
+    font-family: 'Inter', sans-serif;
+    font-size: 15px;
+    line-height: 1.6;
+}
+
+.ai-message {
+    background: #1e293b;
+    color: #e2e8f0;
+    align-self: flex-start;
+    border-bottom-left-radius: 0;
+}
+
+.user-message {
+    background: #3b82f6; /* Blue for user */
+    color: #fff;
+    align-self: flex-end;
+    border-bottom-right-radius: 0;
+}
+
+.chat-input-area {
+    padding: 20px 30px;
+    background: #1e293b;
+    display: flex;
+    gap: 15px;
+    border-top: 1px solid #334155;
+}
+
+.chat-input-area input {
+    flex-grow: 1;
+    padding: 15px; /* Larger input box */
+    border-radius: 8px;
+    border: 1px solid #475569;
+    background: #0f172a;
+    color: #fff;
+    font-size: 16px;
+    outline: none;
+    transition: border-color 0.2s;
+}
+
+.chat-input-area input:focus {
+    border-color: #3b82f6; /* Highlights blue when typing */
+}
+
+.chat-input-area button {
+    background: #3b82f6;
+    color: #fff;
+    border: none;
+    padding: 0 25px;
+    border-radius: 8px;
+    font-size: 18px;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+.chat-input-area button:hover {
+    background: #2563eb;
+}
+
+/* --- VOICE CHAT SPECIFIC STYLES --- */
+.chat-input-area {
+    padding: 20px 30px;
+    background: #1e293b;
+    display: flex;
+    gap: 10px; /* Reduced gap slightly to fit 3 items */
+    border-top: 1px solid #334155;
+    align-items: center;
+}
+
+.chat-input-area button {
+    background: #3b82f6;
+    color: #fff;
+    border: none;
+    height: 48px; /* Match input height */
+    width: 55px; /* Fixed width for icon buttons */
+    border-radius: 8px;
+    font-size: 18px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+.chat-input-area .send-btn:hover {
+    background: #2563eb;
+}
+
+/* Microphone Button Styling */
+.chat-input-area .mic-btn {
+    background: #475569; /* Gray when inactive */
+}
+
+.chat-input-area .mic-btn:hover {
+    background: #64748b;
+}
+
+/* Red Pulsing Animation for Active Recording */
+.chat-input-area .mic-btn.recording {
+    background: #ef4444; 
+    box-shadow: 0 0 15px rgba(239, 68, 68, 0.6);
+    animation: pulseMic 1.5s infinite;
+}
+
+@keyframes pulseMic {
+    0% { transform: scale(1); box-shadow: 0 0 10px rgba(239, 68, 68, 0.4); }
+    50% { transform: scale(1.08); box-shadow: 0 0 20px rgba(239, 68, 68, 0.8); }
+    100% { transform: scale(1); box-shadow: 0 0 10px rgba(239, 68, 68, 0.4); }
+}
