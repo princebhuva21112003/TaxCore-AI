@@ -42,7 +42,9 @@ class BrowserSession:
 # ==========================================
 @tool
 def convert_ais_pdf_to_excel(pan_number: str, date_of_birth: str) -> str:
-    """Unlock the downloaded AIS PDF, parse contents, and save to Excel."""
+    """Unlock the downloaded AIS PDF, parse contents using smart lookahead regex, and save to Excel."""
+    import re  # Added for smart data pattern matching
+    
     save_dir = os.path.join(os.getcwd(), "client_data")
     pdf_path = os.path.join(save_dir, f"{pan_number}_ais.pdf")
     excel_path = os.path.join(save_dir, f"{pan_number}_ais_structured.xlsx")
@@ -58,7 +60,7 @@ def convert_ais_pdf_to_excel(pan_number: str, date_of_birth: str) -> str:
         doc = pymupdf.open(pdf_path)
         if doc.is_encrypted:
             if not doc.authenticate(pdf_password):
-                error_msg = f"❌ Action Failed: Password {pdf_password} rejected by the PDF. Check DOB format (must be DDMMYYYY)."
+                error_msg = f"❌ Action Failed: Password {pdf_password} rejected by the PDF."
                 print(error_msg)
                 return error_msg
                 
@@ -84,27 +86,65 @@ def convert_ais_pdf_to_excel(pan_number: str, date_of_birth: str) -> str:
         for page in doc:
             all_lines.extend([line.strip() for line in page.get_text().split("\n") if line.strip()])
 
+        # --- SMART LOOKAHEAD HELPER FUNCTION ---
+        def find_next_value(lines, start_idx, expected_type, limit=20):
+            """Scans the next few lines to find data matching the requested format."""
+            for j in range(start_idx + 1, min(start_idx + limit, len(lines))):
+                val = lines[j].strip()
+                if not val: continue
+                
+                if expected_type == "email":
+                    if "@" in val and "." in val:
+                        return val
+                elif expected_type == "mobile":
+                    # Look for a string containing at least 10 digits
+                    digits = re.sub(r'\D', '', val)
+                    if len(digits) >= 10:
+                        return val
+                elif expected_type == "amount":
+                    # Look for pure numbers/currency (e.g., 10,000.00). Rejects text like "SR. NO."
+                    if re.match(r'^-?(Rs\.?|₹)?\s*[\d,]+(\.\d+)?$', val, re.IGNORECASE):
+                        return val
+                elif expected_type == "text":
+                    # Skip common headers to find the actual Name
+                    upper_val = val.upper()
+                    if upper_val not in ["ADDRESS", "MOBILE", "MOBILE NUMBER", "EMAIL", "EMAIL ADDRESS", "DATE OF BIRTH", "PAN"]:
+                        return val
+            return "0" if expected_type == "amount" else "Not Found"
+
+        # --- PARSING ENGINE ---
         for i, line in enumerate(all_lines):
             line_upper = line.upper()
+            
             if "NAME OF ASSESSEE" in line_upper or line_upper == "NAME":
-                if i + 1 < len(all_lines): extracted_info["First / Middle / Last Name"] = all_lines[i+1]
-            elif "MOBILE" in line_upper:
-                if i + 1 < len(all_lines): extracted_info["Primary Mobile Number"] = all_lines[i+1]
-            elif "EMAIL" in line_upper:
-                if i + 1 < len(all_lines): extracted_info["Primary Email Address"] = all_lines[i+1]
+                if extracted_info["First / Middle / Last Name"] == "Not Found":
+                    extracted_info["First / Middle / Last Name"] = find_next_value(all_lines, i, "text")
+                    
+            elif line_upper == "MOBILE" or "MOBILE NUMBER" in line_upper:
+                if extracted_info["Primary Mobile Number"] == "Not Found":
+                    extracted_info["Primary Mobile Number"] = find_next_value(all_lines, i, "mobile")
+                    
+            elif line_upper == "EMAIL" or "EMAIL ADDRESS" in line_upper:
+                if extracted_info["Primary Email Address"] == "Not Found":
+                    extracted_info["Primary Email Address"] = find_next_value(all_lines, i, "email")
+                    
             elif "INTEREST FROM SAVINGS BANK" in line_upper:
-                if i + 1 < len(all_lines): extracted_info["Savings Bank Interest"] = all_lines[i+1]
+                extracted_info["Savings Bank Interest"] = find_next_value(all_lines, i, "amount")
+                
             elif "INTEREST FROM DEPOSIT" in line_upper or "TERM DEPOSIT" in line_upper:
-                if i + 1 < len(all_lines): extracted_info["Term Deposit / FD Interest"] = all_lines[i+1]
+                extracted_info["Term Deposit / FD Interest"] = find_next_value(all_lines, i, "amount")
+                
             elif line_upper == "DIVIDEND" or "DIVIDEND INCOME" in line_upper:
-                if i + 1 < len(all_lines): extracted_info["Dividend Income"] = all_lines[i+1]
+                extracted_info["Dividend Income"] = find_next_value(all_lines, i, "amount")
+                
             elif "RENT RECEIVED" in line_upper:
-                if i + 1 < len(all_lines): extracted_info["Gross Rent Received (HP)"] = all_lines[i+1]
+                extracted_info["Gross Rent Received (HP)"] = find_next_value(all_lines, i, "amount")
+                
             elif "SECURITIES AND UNITS" in line_upper or "CAPITAL GAINS" in line_upper:
-                if i + 1 < len(all_lines): 
-                    extracted_info["Short Term Capital Gains (111A)"] = "Found (See Raw Data Backup)"
-                    extracted_info["Long Term Capital Gains (112A)"] = "Found (See Raw Data Backup)"
+                extracted_info["Short Term Capital Gains (111A)"] = "Found (See Raw Data Backup)"
+                extracted_info["Long Term Capital Gains (112A)"] = "Found (See Raw Data Backup)"
 
+        # --- SAVE TO EXCEL ---
         structured_df = pd.DataFrame(list(extracted_info.items()), columns=["Attribute", "Details"])
         raw_df = pd.DataFrame({"Raw Extracted Text": all_lines})
         
@@ -118,6 +158,70 @@ def convert_ais_pdf_to_excel(pan_number: str, date_of_birth: str) -> str:
     except Exception as e:
         print(f"❌ PDF Excel Conversion Crashed: {str(e)}")
         return f"Action Failed during PDF Excel conversion. Error: {str(e)}"
+
+@tool
+def convert_tis_pdf_to_excel(pan_number: str, date_of_birth: str) -> str:
+    """Unlock the downloaded TIS PDF, extract the summary data, and save to a structured Excel file."""
+    import re
+    
+    save_dir = os.path.join(os.getcwd(), "client_data")
+    pdf_path = os.path.join(save_dir, f"{pan_number}_tis.pdf")
+    excel_path = os.path.join(save_dir, f"{pan_number}_tis_structured.xlsx")
+    
+    if not os.path.exists(pdf_path):
+        return f"Action Failed: Could not find the TIS PDF at {pdf_path}."
+        
+    clean_dob = date_of_birth.replace("/", "").replace("-", "").replace(" ", "")
+    pdf_password = f"{pan_number.lower()}{clean_dob}"
+    print(f"🔐 Extracting TIS: Attempting to unlock PDF with password: {pdf_password}")
+
+    try:
+        doc = pymupdf.open(pdf_path)
+        if doc.is_encrypted:
+            if not doc.authenticate(pdf_password):
+                return f"❌ Action Failed: Password {pdf_password} rejected by the TIS PDF."
+                
+        print("✅ TIS PDF Unlocked! Converting to Excel...")
+
+        all_lines = []
+        for page in doc:
+            all_lines.extend([line.strip() for line in page.get_text().split("\n") if line.strip()])
+
+        # Generic TIS Extractor (Captures Category + Derived Values)
+        structured_data = []
+        for i, line in enumerate(all_lines):
+            # Look for typical financial numbers in the TIS format
+            if re.match(r'^-?(Rs\.?|₹)?\s*[\d,]+(\.\d+)?$', line, re.IGNORECASE):
+                # Grab the category name which is usually 1-2 lines above the number
+                category = all_lines[i-1] if i > 0 else "Unknown Category"
+                if len(category) > 40 or category.replace(',', '').isdigit(): 
+                    category = all_lines[i-2] if i > 1 else "Unknown Category"
+                
+                structured_data.append({"Information Category": category, "Derived Value": line})
+
+        # Remove duplicates while preserving order
+        seen = set()
+        clean_structured_data = []
+        for item in structured_data:
+            identifier = f"{item['Information Category']}-{item['Derived Value']}"
+            if identifier not in seen and "SR. NO." not in item['Information Category'].upper():
+                seen.add(identifier)
+                clean_structured_data.append(item)
+
+        structured_df = pd.DataFrame(clean_structured_data)
+        raw_df = pd.DataFrame({"Raw Extracted Text": all_lines})
+        
+        with pd.ExcelWriter(excel_path, engine="openpyxl") as writer:
+            if not structured_df.empty:
+                structured_df.to_excel(writer, sheet_name="TIS Summary", index=False)
+            raw_df.to_excel(writer, sheet_name="Raw Data Backup", index=False)
+
+        print(f"✅ TIS Excel conversion complete! Saved to: {excel_path}")
+        return f"Successfully structured TIS data and saved Excel to: {excel_path}"
+
+    except Exception as e:
+        print(f"❌ TIS Excel Conversion Crashed: {str(e)}")
+        return f"Action Failed during TIS Excel conversion. Error: {str(e)}"
 
 @tool
 def navigate_to_url(url: str) -> str:
@@ -398,7 +502,8 @@ tools = [
     check_checkbox,
     download_and_export_to_excel,
     handle_captcha,
-    convert_ais_pdf_to_excel
+    convert_ais_pdf_to_excel,
+    convert_tis_pdf_to_excel
 ]
 tool_map = {t.name: t for t in tools}
 
@@ -478,6 +583,13 @@ def run_itr_bot(pan_number: str, password: str, date_of_birth:str):
         "54. You MUST strictly use the handle_captcha tool with img_selector '#captcahCanvas' and input_selector '#captchaInput'.\n"
         "55. Wait for 2 seconds to ensure the CAPTCHA text is fully registered.\n"
         f"56. Use the download_file tool to click 'Proceed' and save the file as '{pan_number}_ais.json'."
+
+        # --- PHASE 4: DOWNLOAD TIS PDF & CONVERT TO EXCEL ---
+        "57. Use the click_element tool with selector_or_text 'button:has-text(\"AIS/TIS\")' to reopen the download modal.\n"
+        "58. Wait for 3 seconds so the download modal appears.\n"
+        f"59. Use the download_file tool to click ':nth-match(button.dialog-outline-btn, 4)' and save the file as '{pan_number}_tis.pdf'.\n"
+        f"60. Use the convert_tis_pdf_to_excel tool with pan_number '{pan_number}' and date_of_birth '{date_of_birth}'."
+
     )
 
     print(f"\n🤖 Agent executing: Logging in PAN {pan_number}")
