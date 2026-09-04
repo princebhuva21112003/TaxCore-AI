@@ -910,4 +910,48 @@ function appendMessage(text, className) {
     
     return uniqueId;
 }
+// Poll backend for CAPTCHA
+setInterval(async () => {
+    try {
+        let res = await fetch("http://127.0.0.1:8000/check-captcha");
+        let data = await res.json();
+        
+        if (data.image && !document.getElementById("captcha-ui")) {
+            showCaptchaUI(data.image);
+        }
+    } catch (e) {
+        console.error("CAPTCHA fetch error:", e); // This will reveal the error in Inspect -> Console
+    }
+}, 2000);
+
+function showCaptchaUI(base64Image) {
+    const chatBox = document.getElementById('chatBox');
+    const msgDiv = document.createElement('div');
+    msgDiv.id = "captcha-ui";
+    msgDiv.className = "message ai-message captcha-container";
+    msgDiv.innerHTML = `
+        <p class="captcha-title">⚠️ CAPTCHA Required</p>
+        <img src="data:image/png;base64,${base64Image}" class="captcha-img" />
+        <div class="captcha-input-group">
+            <input type="text" id="captchaInputText" placeholder="Enter characters..." autocomplete="off">
+            <button onclick="submitCaptcha()">Submit</button>
+        </div>
+    `;
+    chatBox.appendChild(msgDiv);
+    chatBox.scrollTop = chatBox.scrollHeight;
+}
+
+async function submitCaptcha() {
+    const text = document.getElementById("captchaInputText").value.trim();
+    if(!text) return;
+
+    document.getElementById("captcha-ui").innerHTML = "<em style='color:#34d399;'>CAPTCHA submitted. Resuming automation...</em>";
+    document.getElementById("captcha-ui").removeAttribute("id");
+
+    await fetch("http://127.0.0.1:8000/submit-captcha", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: text })
+    });
+}
 animate();

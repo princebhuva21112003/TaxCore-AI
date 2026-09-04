@@ -12,7 +12,7 @@ from langchain_chroma import Chroma
 from langchain_openai import OpenAIEmbeddings, ChatOpenAI
 from dotenv import load_dotenv
 from contextlib import asynccontextmanager
-
+from fill_the_data import captcha_state
 from langchain_core.tools import tool
 from langchain_core.messages import HumanMessage, AIMessage, ToolMessage, SystemMessage
 
@@ -118,7 +118,17 @@ app.add_middleware(
 
 class QueryRequest(BaseModel):
     message: str 
+class CaptchaSubmit(BaseModel):
+    text: str
 
+@app.get("/check-captcha")
+async def check_captcha():
+    return {"image": captcha_state["image"]}
+
+@app.post("/submit-captcha")
+async def submit_captcha(request: CaptchaSubmit):
+    captcha_state["text"] = request.text
+    return {"status": "success"}
 @app.post("/chat")
 async def ask_question(request: QueryRequest):
     global chat_history, llm_with_tools
