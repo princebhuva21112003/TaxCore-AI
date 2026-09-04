@@ -42,127 +42,176 @@ class BrowserSession:
 # ==========================================
 @tool
 def convert_ais_pdf_to_excel(pan_number: str, date_of_birth: str) -> str:
-    """Unlock the downloaded AIS PDF, parse contents using smart lookahead regex, and save to Excel."""
-    import re  # Added for smart data pattern matching
+    """Unlock the AIS PDF, safely extract General Info, and parse complex nested tables into Excel tabs."""
+    import re
+    import pandas as pd
+    import pymupdf
+    import os
     
     save_dir = os.path.join(os.getcwd(), "client_data")
     pdf_path = os.path.join(save_dir, f"{pan_number}_ais.pdf")
     excel_path = os.path.join(save_dir, f"{pan_number}_ais_structured.xlsx")
     
     if not os.path.exists(pdf_path):
-        return f"Action Failed: Could not find the downloaded PDF at {pdf_path}."
+        return f"Action Failed: Could not find the AIS PDF at {pdf_path}."
         
     clean_dob = date_of_birth.replace("/", "").replace("-", "").replace(" ", "")
     pdf_password = f"{pan_number.lower()}{clean_dob}"
-    print(f"🔐 Extracting Data: Attempting to unlock PDF with password: {pdf_password}")
+    print(f"🔐 Extracting AIS: Attempting to unlock PDF with password: {pdf_password}")
 
     try:
         doc = pymupdf.open(pdf_path)
         if doc.is_encrypted:
             if not doc.authenticate(pdf_password):
-                error_msg = f"❌ Action Failed: Password {pdf_password} rejected by the PDF."
-                print(error_msg)
-                return error_msg
+                return f"❌ Action Failed: Password {pdf_password} rejected by the AIS PDF."
                 
-        print("✅ PDF Unlocked Successfully! Converting to Excel...")
-
-        extracted_info = {
-            "PAN": pan_number,
-            "First / Middle / Last Name": "Not Found",
-            "Primary Mobile Number": "Not Found",
-            "Primary Email Address": "Not Found",
-            "Gross Rent Received (HP)": "0",
-            "Home Loan Interest (24b)": "0",
-            "Short Term Capital Gains (111A)": "0",
-            "Long Term Capital Gains (112A)": "0",
-            "Savings Bank Interest": "0",
-            "Term Deposit / FD Interest": "0",
-            "Dividend Income": "0",
-            "Section 80G (Donations)": "0",
-            "TDS on Non-Salary (Sch TDS-2)": "0"
-        }
+        print("✅ AIS PDF Unlocked! Running Advanced Data Structuring...")
 
         all_lines = []
         for page in doc:
             all_lines.extend([line.strip() for line in page.get_text().split("\n") if line.strip()])
 
-        # --- SMART LOOKAHEAD HELPER FUNCTION ---
-        def find_next_value(lines, start_idx, expected_type, limit=20):
-            """Scans the next few lines to find data matching the requested format."""
-            for j in range(start_idx + 1, min(start_idx + limit, len(lines))):
-                val = lines[j].strip()
-                if not val: continue
-                
-                if expected_type == "email":
-                    if "@" in val and "." in val:
-                        return val
-                elif expected_type == "mobile":
-                    # Look for a string containing at least 10 digits
-                    digits = re.sub(r'\D', '', val)
-                    if len(digits) >= 10:
-                        return val
-                elif expected_type == "amount":
-                    # Look for pure numbers/currency (e.g., 10,000.00). Rejects text like "SR. NO."
-                    if re.match(r'^-?(Rs\.?|₹)?\s*[\d,]+(\.\d+)?$', val, re.IGNORECASE):
-                        return val
-                elif expected_type == "text":
-                    # Skip common headers to find the actual Name
-                    upper_val = val.upper()
-                    if upper_val not in ["ADDRESS", "MOBILE", "MOBILE NUMBER", "EMAIL", "EMAIL ADDRESS", "DATE OF BIRTH", "PAN"]:
-                        return val
-            return "0" if expected_type == "amount" else "Not Found"
+        # --- 1. EXTRACT GENERAL INFORMATION (BULLETPROOF REGEX) ---
+        # Join all text into one giant string to bypass horizontal PDF layout issues
+        full_text = " ".join(all_lines)
+        
+        # Regex patterns to guarantee correct data grabbing
+        email_match = re.search(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}', full_text)
+        dob_match = re.search(r'\b\d{2}/\d{2}/\d{4}\b', full_text)
+        aadhaar_match = re.search(r'(XXXX\s*XXXX\s*\d{4}|XXXXXXXX\d{4})', full_text)
+        mobile_match = re.search(r'\b[6-9]\d{9}\b', full_text)
 
-        # --- PARSING ENGINE ---
+        general_info = {
+            "PAN": pan_number,
+            "Aadhaar Number": aadhaar_match.group(0) if aadhaar_match else "Not Found",
+            "Name of Assessee": "Not Found",
+            "Date of Birth": dob_match.group(0) if dob_match else date_of_birth,
+            "Mobile Number": mobile_match.group(0) if mobile_match else "Not Found",
+            "Email Address": email_match.group(0) if email_match else "Not Found",
+            "Address": "Not Found"
+        }
+
+        # Find Name and Address dynamically
         for i, line in enumerate(all_lines):
-            line_upper = line.upper()
+            line_up = line.upper()
+            if "NAME OF ASSESSEE" in line_up and general_info["Name of Assessee"] == "Not Found":
+                for j in range(i+1, min(i+10, len(all_lines))):
+                    val = all_lines[j]
+                    if val.upper() not in ["DATE OF BIRTH", "MOBILE NUMBER", "E-MAIL ADDRESS", "EMAIL ADDRESS"] \
+                       and pan_number.upper() not in val.upper() and "XXXX" not in val and not re.match(r'\d{2}/\d{2}/\d{4}', val):
+                        if len(val) > 3:
+                            general_info["Name of Assessee"] = val
+                            break
             
-            if "NAME OF ASSESSEE" in line_upper or line_upper == "NAME":
-                if extracted_info["First / Middle / Last Name"] == "Not Found":
-                    extracted_info["First / Middle / Last Name"] = find_next_value(all_lines, i, "text")
-                    
-            elif line_upper == "MOBILE" or "MOBILE NUMBER" in line_upper:
-                if extracted_info["Primary Mobile Number"] == "Not Found":
-                    extracted_info["Primary Mobile Number"] = find_next_value(all_lines, i, "mobile")
-                    
-            elif line_upper == "EMAIL" or "EMAIL ADDRESS" in line_upper:
-                if extracted_info["Primary Email Address"] == "Not Found":
-                    extracted_info["Primary Email Address"] = find_next_value(all_lines, i, "email")
-                    
-            elif "INTEREST FROM SAVINGS BANK" in line_upper:
-                extracted_info["Savings Bank Interest"] = find_next_value(all_lines, i, "amount")
-                
-            elif "INTEREST FROM DEPOSIT" in line_upper or "TERM DEPOSIT" in line_upper:
-                extracted_info["Term Deposit / FD Interest"] = find_next_value(all_lines, i, "amount")
-                
-            elif line_upper == "DIVIDEND" or "DIVIDEND INCOME" in line_upper:
-                extracted_info["Dividend Income"] = find_next_value(all_lines, i, "amount")
-                
-            elif "RENT RECEIVED" in line_upper:
-                extracted_info["Gross Rent Received (HP)"] = find_next_value(all_lines, i, "amount")
-                
-            elif "SECURITIES AND UNITS" in line_upper or "CAPITAL GAINS" in line_upper:
-                extracted_info["Short Term Capital Gains (111A)"] = "Found (See Raw Data Backup)"
-                extracted_info["Long Term Capital Gains (112A)"] = "Found (See Raw Data Backup)"
+            if line_up == "ADDRESS" and general_info["Address"] == "Not Found":
+                for j in range(i+1, min(i+5, len(all_lines))):
+                    if len(all_lines[j]) > 15:
+                        general_info["Address"] = all_lines[j]
+                        break
 
-        # --- SAVE TO EXCEL ---
-        structured_df = pd.DataFrame(list(extracted_info.items()), columns=["Attribute", "Details"])
+        # --- 2. EXTRACT NESTED TABLES (DYNAMIC BLOCK PARSING) ---
+        financial_transactions = []
+        tax_payments = []
+        
+        i = 0
+        current_part = "Unknown"
+        while i < len(all_lines):
+            line = all_lines[i]
+            line_up = line.upper()
+            
+            if "PART B1" in line_up or "PART B2" in line_up or "SPECIFIED FINANCIAL" in line_up or "PART B" in line_up:
+                current_part = "SFT/TDS"
+            if "PART B3" in line_up or "PAYMENT OF TAXES" in line_up:
+                current_part = "TAX_PAYMENT"
+                
+            # TRIGGER: Serial Number indicates a new transaction row
+            if line.isdigit() and 0 < len(line) < 4:
+                
+                # SFT / TDS Logic
+                if current_part in ["SFT/TDS", "Unknown"]:
+                    # Group the entire block until it hits "Active" or "Inactive"
+                    status_idx = -1
+                    for j in range(1, 20):
+                        if i+j < len(all_lines) and all_lines[i+j].upper() in ["ACTIVE", "INACTIVE"]:
+                            status_idx = j
+                            break
+                    
+                    if status_idx != -1:
+                        block = all_lines[i : i+status_idx+1]
+                        dates = [x for x in block if re.match(r'\d{2}/\d{2}/\d{4}', x)]
+                        amounts = [x for x in block if re.match(r'^-?(Rs\.?|₹)?\s*[\d,]+(\.\d+)?$', x) and len(x) > 1 and x != block[0]]
+                        info_codes = [x for x in block if "SFT-" in x or "TCS-" in x or "TDS-" in x]
+                        
+                        financial_transactions.append({
+                            "SR. NO.": block[0],
+                            "Information Code": info_codes[0] if info_codes else (block[1] if len(block) > 1 else ""),
+                            "Description / Category": block[2] if len(block) > 2 else "",
+                            "Reported Date": dates[0] if dates else "",
+                            "Amount": amounts[-1] if amounts else "",
+                            "Status": block[-1],
+                            "Raw Data Block (For Reference)": " | ".join(block) # Captures everything safely
+                        })
+                        i += status_idx
+                        continue
+
+                # Tax Payments Logic
+                elif current_part == "TAX_PAYMENT":
+                    # Check if next item is a Financial Year (e.g., 2024-25)
+                    if i+1 < len(all_lines) and re.match(r'\d{4}-\d{2}', all_lines[i+1]):
+                        block = all_lines[i : min(i+15, len(all_lines))]
+                        dates = [x for x in block if re.match(r'\d{2}/\d{2}/\d{4}', x)]
+                        date_val = dates[0] if dates else ""
+                        
+                        tax_payments.append({
+                            "SR. NO.": block[0],
+                            "Financial Year": block[1],
+                            "Major Head": block[2] if len(block) > 2 else "",
+                            "Minor Head": block[3] if len(block) > 3 else "",
+                            "Date of Deposit": date_val,
+                            "Raw Data Block (For Reference)": " | ".join(block)
+                        })
+                        try:
+                            date_idx = block.index(date_val)
+                            i += date_idx + 2 
+                        except:
+                            i += 12
+                        continue
+            i += 1
+
+        # --- 3. BUILD THE MULTI-TAB EXCEL FILE ---
+        general_df = pd.DataFrame(list(general_info.items()), columns=["Attribute", "Details"])
+        sft_df = pd.DataFrame(financial_transactions)
+        tax_df = pd.DataFrame(tax_payments)
         raw_df = pd.DataFrame({"Raw Extracted Text": all_lines})
         
         with pd.ExcelWriter(excel_path, engine="openpyxl") as writer:
-            structured_df.to_excel(writer, sheet_name="Structured AIS Data", index=False)
+            general_df.to_excel(writer, sheet_name="General Information", index=False)
+            
+            if not sft_df.empty:
+                sft_df.to_excel(writer, sheet_name="SFT & TDS Transactions", index=False)
+            else:
+                pd.DataFrame([{"Data": "No SFT/TDS transactions found"}]).to_excel(writer, sheet_name="SFT & TDS Transactions", index=False)
+                
+            if not tax_df.empty:
+                tax_df.to_excel(writer, sheet_name="Tax Payments (Part B3)", index=False)
+            else:
+                pd.DataFrame([{"Data": "No tax payments found"}]).to_excel(writer, sheet_name="Tax Payments (Part B3)", index=False)
+                
             raw_df.to_excel(writer, sheet_name="Raw Data Backup", index=False)
 
-        print(f"✅ Excel conversion complete! Saved to: {excel_path}")
-        return f"Successfully structured text and saved Excel to: {excel_path}"
+        print(f"✅ AIS Excel successfully mapped into 4 tabs! Saved to: {excel_path}")
+        return f"Successfully structured AIS data and saved Excel to: {excel_path}"
 
     except Exception as e:
-        print(f"❌ PDF Excel Conversion Crashed: {str(e)}")
-        return f"Action Failed during PDF Excel conversion. Error: {str(e)}"
+        print(f"❌ AIS Excel Conversion Crashed: {str(e)}")
+        return f"Action Failed during AIS Excel conversion. Error: {str(e)}"
 
 @tool
 def convert_tis_pdf_to_excel(pan_number: str, date_of_birth: str) -> str:
-    """Unlock the downloaded TIS PDF, extract the summary data, and save to a structured Excel file."""
+    """Unlock the TIS PDF, accurately extract General Info, Summary Tables, and Detailed Tables into Excel tabs."""
     import re
+    import pandas as pd
+    import pymupdf
     
     save_dir = os.path.join(os.getcwd(), "client_data")
     pdf_path = os.path.join(save_dir, f"{pan_number}_tis.pdf")
@@ -181,42 +230,103 @@ def convert_tis_pdf_to_excel(pan_number: str, date_of_birth: str) -> str:
             if not doc.authenticate(pdf_password):
                 return f"❌ Action Failed: Password {pdf_password} rejected by the TIS PDF."
                 
-        print("✅ TIS PDF Unlocked! Converting to Excel...")
+        print("✅ TIS PDF Unlocked! Structuring data exactly like the portal...")
 
         all_lines = []
         for page in doc:
             all_lines.extend([line.strip() for line in page.get_text().split("\n") if line.strip()])
 
-        # Generic TIS Extractor (Captures Category + Derived Values)
-        structured_data = []
+        # --- 1. EXTRACT GENERAL INFORMATION ---
+        general_info = {
+            "PAN": pan_number,
+            "Aadhaar Number": "",
+            "Name of Assessee": "",
+            "Date of Birth": "",
+            "Mobile Number": "",
+            "Email Address": "",
+            "Address": ""
+        }
+
         for i, line in enumerate(all_lines):
-            # Look for typical financial numbers in the TIS format
-            if re.match(r'^-?(Rs\.?|₹)?\s*[\d,]+(\.\d+)?$', line, re.IGNORECASE):
-                # Grab the category name which is usually 1-2 lines above the number
-                category = all_lines[i-1] if i > 0 else "Unknown Category"
-                if len(category) > 40 or category.replace(',', '').isdigit(): 
-                    category = all_lines[i-2] if i > 1 else "Unknown Category"
+            line_up = line.upper()
+            if "AADHAAR NUMBER" in line_up and not general_info["Aadhaar Number"]:
+                general_info["Aadhaar Number"] = all_lines[i+1]
+            elif "NAME OF ASSESSEE" in line_up and not general_info["Name of Assessee"]:
+                general_info["Name of Assessee"] = all_lines[i+1]
+            elif "DATE OF BIRTH" in line_up and not general_info["Date of Birth"]:
+                general_info["Date of Birth"] = all_lines[i+1]
+            elif "MOBILE NUMBER" in line_up and not general_info["Mobile Number"]:
+                general_info["Mobile Number"] = all_lines[i+1]
+            elif ("E-MAIL ADDRESS" in line_up or "EMAIL ADDRESS" in line_up) and not general_info["Email Address"]:
+                general_info["Email Address"] = all_lines[i+1]
+            elif line_up == "ADDRESS" and not general_info["Address"]:
+                general_info["Address"] = all_lines[i+1]
+
+        # --- 2. EXTRACT TABLES (SUMMARY & DETAILS) ---
+        def is_amount(val):
+            return bool(re.match(r'^-?(Rs\.?|₹)?\s*[\d,]+(\.\d+)?$', str(val).strip(), re.IGNORECASE))
+
+        summary_data = []
+        detail_data = []
+        
+        i = 0
+        while i < len(all_lines):
+            line = all_lines[i]
+            # Check if line is a Serial Number (1, 2, 3...)
+            if line.isdigit():
+                # DETAILED ROW (8 Columns) - Lookahead to check if next line is a 'PART' like SFT, TDS
+                if i + 7 < len(all_lines) and all_lines[i+1] in ["SFT", "TDS/TCS", "TDS", "TCS", "ADV", "SAST", "OTH"]:
+                    if is_amount(all_lines[i+5]) and is_amount(all_lines[i+6]):
+                        detail_data.append({
+                            "SR. NO.": line,
+                            "PART": all_lines[i+1],
+                            "INFORMATION DESCRIPTION": all_lines[i+2],
+                            "INFORMATION SOURCE": all_lines[i+3],
+                            "AMOUNT DESCRIPTION": all_lines[i+4],
+                            "REPORTED BY SOURCE": all_lines[i+5],
+                            "PROCESSED BY SYSTEM": all_lines[i+6],
+                            "ACCEPTED BY TAXPAYER": all_lines[i+7]
+                        })
+                        i += 7
+                        continue
                 
-                structured_data.append({"Information Category": category, "Derived Value": line})
+                # SUMMARY ROW (4 Columns) - Lookahead to check if upcoming lines are amounts
+                elif i + 3 < len(all_lines):
+                    if is_amount(all_lines[i+2]) and is_amount(all_lines[i+3]):
+                        summary_data.append({
+                            "SR. NO.": line,
+                            "INFORMATION CATEGORY": all_lines[i+1],
+                            "PROCESSED BY SYSTEM": all_lines[i+2],
+                            "ACCEPTED BY TAXPAYER": all_lines[i+3]
+                        })
+                        i += 3
+                        continue
+            i += 1
 
-        # Remove duplicates while preserving order
-        seen = set()
-        clean_structured_data = []
-        for item in structured_data:
-            identifier = f"{item['Information Category']}-{item['Derived Value']}"
-            if identifier not in seen and "SR. NO." not in item['Information Category'].upper():
-                seen.add(identifier)
-                clean_structured_data.append(item)
-
-        structured_df = pd.DataFrame(clean_structured_data)
+        # --- 3. BUILD THE MULTI-TAB EXCEL FILE ---
+        general_df = pd.DataFrame(list(general_info.items()), columns=["Attribute", "Details"])
+        summary_df = pd.DataFrame(summary_data)
+        detail_df = pd.DataFrame(detail_data)
         raw_df = pd.DataFrame({"Raw Extracted Text": all_lines})
         
         with pd.ExcelWriter(excel_path, engine="openpyxl") as writer:
-            if not structured_df.empty:
-                structured_df.to_excel(writer, sheet_name="TIS Summary", index=False)
+            # Tab 1: General Client Info
+            general_df.to_excel(writer, sheet_name="General Information", index=False)
+            
+            # Tab 2: High-Level Summary
+            if not summary_df.empty:
+                summary_df.to_excel(writer, sheet_name="TIS Summary", index=False)
+            else:
+                pd.DataFrame([{"Data": "No Summary Data Found"}]).to_excel(writer, sheet_name="TIS Summary", index=False)
+                
+            # Tab 3: Detailed Bank & Source Info
+            if not detail_df.empty:
+                detail_df.to_excel(writer, sheet_name="TIS Detailed Breakdown", index=False)
+            
+            # Tab 4: Raw Backup
             raw_df.to_excel(writer, sheet_name="Raw Data Backup", index=False)
 
-        print(f"✅ TIS Excel conversion complete! Saved to: {excel_path}")
+        print(f"✅ TIS Excel successfully mapped into 3 tabs! Saved to: {excel_path}")
         return f"Successfully structured TIS data and saved Excel to: {excel_path}"
 
     except Exception as e:
@@ -525,7 +635,8 @@ def run_itr_bot(pan_number: str, password: str, date_of_birth:str):
     user_prompt = (
         "1. Go to https://eportal.incometax.gov.in/iec/foservices/#/login\n"
         f"2. Fill the input field 'Enter your User ID' with '{pan_number}'\n"
-        "3. Click the 'Continue' button.\n"
+        "3. Wait for 1 seconds so the Continue button becomes enabled.\n"
+        "3.5. Click the 'Continue' button.\n"
         "4. Wait for 2 seconds so the password page can load.\n"
         "5. Click the element 'Please confirm your secure access message'.\n"
         f"6. Fill the input field 'loginPasswordField' with '{password}'.\n"
