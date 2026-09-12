@@ -42,15 +42,15 @@ class BrowserSession:
 # ==========================================
 @tool
 def convert_ais_pdf_to_excel(pan_number: str, date_of_birth: str) -> str:
-    """Unlock the AIS PDF, safely extract General Info, and parse complex nested tables into Excel tabs."""
+    """Unlock the AIS PDF, safely group rows, fix multi-line text wrapping, and map into Excel."""
     import re
-    import pandas as pd
     import pymupdf
     import os
-    
+    from openpyxl import Workbook
+
     save_dir = os.path.join(os.getcwd(), "client_data")
     pdf_path = os.path.join(save_dir, f"{pan_number}_ais.pdf")
-    excel_path = os.path.join(save_dir, f"{pan_number}_ais_structured.xlsx")
+    excel_path = os.path.join(save_dir, f"{pan_number}_ais_master_layout.xlsx")
     
     if not os.path.exists(pdf_path):
         return f"Action Failed: Could not find the AIS PDF at {pdf_path}."
@@ -63,144 +63,281 @@ def convert_ais_pdf_to_excel(pan_number: str, date_of_birth: str) -> str:
         doc = pymupdf.open(pdf_path)
         if doc.is_encrypted:
             if not doc.authenticate(pdf_password):
-                return f"❌ Action Failed: Password {pdf_password} rejected by the AIS PDF."
+                return f"❌ Action Failed: Password rejected."
                 
-        print("✅ AIS PDF Unlocked! Running Advanced Data Structuring...")
+        print("✅ AIS PDF Unlocked! Running Anchored Data Mapper...")
+        raw_lines = [line.strip() for page in doc for line in page.get_text().split("\n") if line.strip()]
 
-        all_lines = []
-        for page in doc:
-            all_lines.extend([line.strip() for line in page.get_text().split("\n") if line.strip()])
+        def is_amount(val): 
+            return bool(re.match(r'^-?(Rs\.?|₹)?\s*[\d,]+(\.\d+)?$', str(val).strip(), re.IGNORECASE))
 
-        # --- 1. EXTRACT GENERAL INFORMATION (BULLETPROOF REGEX) ---
-        # Join all text into one giant string to bypass horizontal PDF layout issues
-        full_text = " ".join(all_lines)
-        
-        # Regex patterns to guarantee correct data grabbing
-        email_match = re.search(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}', full_text)
-        dob_match = re.search(r'\b\d{2}/\d{2}/\d{4}\b', full_text)
-        aadhaar_match = re.search(r'(XXXX\s*XXXX\s*\d{4}|XXXXXXXX\d{4})', full_text)
-        mobile_match = re.search(r'\b[6-9]\d{9}\b', full_text)
-
-        general_info = {
-            "PAN": pan_number,
-            "Aadhaar Number": aadhaar_match.group(0) if aadhaar_match else "Not Found",
-            "Name of Assessee": "Not Found",
-            "Date of Birth": dob_match.group(0) if dob_match else date_of_birth,
-            "Mobile Number": mobile_match.group(0) if mobile_match else "Not Found",
-            "Email Address": email_match.group(0) if email_match else "Not Found",
-            "Address": "Not Found"
+        # --- 1. GARBAGE HEADER FILTER ---
+        garbage_headers = {
+            "SR. NO.", "REPORTED ON", "ACCOUNT NUMBER", "ACCOUNT TYPE", "INTEREST AMOUNT", "STATUS",
+            "COUNT", "AMOUNT", "INFORMATION CODE", "INFORMATION DESCRIPTION", "INFORMATION SOURCE",
+            "QUARTER", "DATE OF RECEIPT/ DEBIT", "AMOUNT RECEIVED/DEBITED", "TAX COLLECTED",
+            "TCS DEPOSITED", "FINANCIAL YEAR", "MAJOR HEAD MINOR HEAD", "MAJOR HEAD", "MINOR HEAD",
+            "TAX (A)", "SURCHARGE (B)", "EDUCATION CESS (C)", "OTHERS (D)", "TOTAL (A+B+C+D)",
+            "BSR CODE", "DATE OF DEPOSIT", "CHALLAN SERIAL NUMBER", "CHALLAN IDENTIFICATION NUMBER",
+            "PART", "TOTAL (A+B+C +D)"
         }
+        all_lines = [line for line in raw_lines if line.upper() not in garbage_headers]
 
-        # Find Name and Address dynamically
+        # --- 2. EXTRACT GENERAL INFO ---
+        general_info = {
+            "PAN": pan_number, "Aadhaar Number": "", "Name of Assessee": "", 
+            "Date of Birth": "", "Mobile Number": "", "Email Address": "", "Address": ""
+        }
         for i, line in enumerate(all_lines):
+            if not general_info["Aadhaar Number"] and ("XXXX" in line or len(re.sub(r'\D', '', line)) == 12) and len(line) >= 12:
+                if "AADHAAR" not in line.upper(): 
+                    general_info["Aadhaar Number"] = line
+                    if i + 1 < len(all_lines): general_info["Name of Assessee"] = all_lines[i+1]
+            elif not general_info["Date of Birth"] and re.match(r'^\d{2}/\d{2}/\d{4}$', line): general_info["Date of Birth"] = line
+            elif not general_info["Mobile Number"] and re.match(r'^\d{10}$', line): general_info["Mobile Number"] = line
+            elif not general_info["Email Address"] and "@" in line and "." in line: general_info["Email Address"] = line
+            elif not general_info["Address"] and line.upper() == "ADDRESS":
+                if i + 1 < len(all_lines): general_info["Address"] = all_lines[i+1]
+
+        part_data = {"B1": [], "B2": [], "B3": [], "B7": []}
+        curr_part = None
+        for line in all_lines:
             line_up = line.upper()
-            if "NAME OF ASSESSEE" in line_up and general_info["Name of Assessee"] == "Not Found":
-                for j in range(i+1, min(i+10, len(all_lines))):
-                    val = all_lines[j]
-                    if val.upper() not in ["DATE OF BIRTH", "MOBILE NUMBER", "E-MAIL ADDRESS", "EMAIL ADDRESS"] \
-                       and pan_number.upper() not in val.upper() and "XXXX" not in val and not re.match(r'\d{2}/\d{2}/\d{4}', val):
-                        if len(val) > 3:
-                            general_info["Name of Assessee"] = val
-                            break
+            if "PART B1" in line_up: curr_part = "B1"
+            elif "PART B2" in line_up: curr_part = "B2"
+            elif "PART B3" in line_up: curr_part = "B3"
+            elif "PART B7" in line_up: curr_part = "B7"
+            elif curr_part: part_data[curr_part].append(line)
+
+        # --- 3. THE SMART BLOCK BUILDER ---
+        def build_blocks(lines):
+            raw_blocks, temp = [], []
+            for val in lines:
+                if val.isdigit() and len(val) <= 4:
+                    if temp: raw_blocks.append(temp)
+                    temp = [val]
+                elif temp: temp.append(val)
+            if temp: raw_blocks.append(temp)
             
-            if line_up == "ADDRESS" and general_info["Address"] == "Not Found":
-                for j in range(i+1, min(i+5, len(all_lines))):
-                    if len(all_lines[j]) > 15:
-                        general_info["Address"] = all_lines[j]
+            merged = []
+            for blk in raw_blocks:
+                has_id = False
+                if blk and blk[0].isdigit():
+                    for x in blk[:3]:
+                        x_up = x.upper()
+                        if any(x_up.startswith(c) for c in ["SFT", "TDS", "TCS", "ADV", "SAST", "OTH", "Q1", "Q2", "Q3", "Q4"]): has_id = True
+                        if re.match(r'^\d{2}/\d{2}/\d{4}', x_up) or re.match(r'^20\d{2}-\d{2}$', x_up): has_id = True
+                
+                if has_id or not merged: merged.append(blk)
+                else: merged[-1].extend(blk)
+            return merged
+
+        # --- 4. BACKWARD EXTRACTION LOGIC (WITH MULTI-LINE TEXT FIX) ---
+        b1_top, b1_bot, b2_data, b7_data, b3_data = [], [], [], [], []
+        
+        # PROCESS B1
+        for blk in build_blocks(part_data["B1"]):
+            is_bot = any(x.upper().startswith(c) for c in ["Q1", "Q2", "Q3", "Q4"] for x in blk[:4]) or any(re.match(r'^\d{2}/\d{2}/\d{4}', x) for x in blk[:4])
+            
+            if not is_bot:
+                sr = blk[0]
+                code = blk[1] if len(blk) > 1 else ""
+                
+                amt_idx = next((i for i in range(len(blk)-1, 0, -1) if is_amount(blk[i])), -1)
+                if amt_idx != -1:
+                    amt = blk[amt_idx]
+                    count = blk[amt_idx-1] if (amt_idx > 0 and blk[amt_idx-1].isdigit()) else ""
+                    end_idx = amt_idx - 1 if count else amt_idx
+                else:
+                    amt, count, end_idx = "", "", len(blk)
+                
+                # FIXED: Perfect Separation for Multi-Line Descriptions
+                text_parts = blk[2 : end_idx]
+                if len(text_parts) > 1:
+                    src = text_parts[-1]
+                    desc = " ".join(text_parts[:-1])
+                elif len(text_parts) == 1:
+                    desc = text_parts[0]
+                    src = ""
+                else:
+                    desc, src = "", ""
+                
+                b1_top.append([sr, code, desc, src, count, amt])
+                
+            else:
+                sr = blk[0]
+                qtr = next((x for x in blk if x.upper().startswith(("Q1", "Q2", "Q3", "Q4"))), blk[1] if len(blk)>1 else "")
+                date_idx = next((i for i, x in enumerate(blk) if re.match(r'^\d{2}/\d{2}/\d{4}', x)), -1)
+                date = blk[date_idx] if date_idx != -1 else ""
+                status = next((x for x in blk if x.upper() in ["ACTIVE", "INACTIVE"]), "")
+                
+                amts = []
+                start_amts = date_idx if date_idx != -1 else 1
+                for i in range(len(blk)-1, start_amts, -1):
+                    if is_amount(blk[i]) and blk[i].upper() not in ["ACTIVE", "INACTIVE"]:
+                        amts.insert(0, blk[i])
+                        if len(amts) == 3: break
+                
+                amts = (["", "", ""] + amts)[-3:]
+                b1_bot.append([sr, qtr, date, amts[0], amts[1], amts[2], status])
+
+        # PROCESS B2
+        pending_b2_top = None
+        for blk in build_blocks(part_data["B2"]):
+            is_bot = any(re.match(r'^\d{2}/\d{2}/\d{4}', x) for x in blk[:4])
+            
+            if not is_bot:
+                sr = blk[0]
+                code = blk[1] if len(blk) > 1 else ""
+                
+                amt_idx = next((i for i in range(len(blk)-1, 0, -1) if is_amount(blk[i])), -1)
+                if amt_idx != -1:
+                    amt = blk[amt_idx]
+                    count = blk[amt_idx-1] if (amt_idx > 0 and blk[amt_idx-1].isdigit()) else ""
+                    end_idx = amt_idx - 1 if count else amt_idx
+                else:
+                    amt, count, end_idx = "", "", len(blk)
+                
+                # FIXED: Perfect Separation for Multi-Line Descriptions
+                text_parts = blk[2 : end_idx]
+                if len(text_parts) > 1:
+                    src = text_parts[-1]
+                    desc = " ".join(text_parts[:-1])
+                elif len(text_parts) == 1:
+                    desc = text_parts[0]
+                    src = ""
+                else:
+                    desc, src = "", ""
+                
+                pending_b2_top = [sr, code, desc, src, count, amt]
+                
+            else:
+                sr = blk[0]
+                date_idx = next((i for i, x in enumerate(blk) if re.match(r'^\d{2}/\d{2}/\d{4}', x)), -1)
+                date = blk[date_idx] if date_idx != -1 else ""
+                status = next((x for x in blk if x.upper() in ["ACTIVE", "INACTIVE"]), "")
+                
+                amt_idx = next((i for i in range(len(blk)-1, date_idx if date_idx != -1 else 0, -1) if is_amount(blk[i]) and blk[i].upper() not in ["ACTIVE", "INACTIVE"]), -1)
+                amt = blk[amt_idx] if amt_idx != -1 else ""
+                
+                end_idx = amt_idx if amt_idx != -1 else (blk.index(status) if status else len(blk))
+                acc_parts = blk[(date_idx + 1 if date_idx != -1 else 1) : end_idx]
+                
+                acc_num = acc_parts[0] if len(acc_parts) > 0 else ""
+                acc_type = " ".join(acc_parts[1:]) if len(acc_parts) > 1 else ""
+                
+                if pending_b2_top:
+                    b2_data.append(pending_b2_top + [sr, date, acc_num, acc_type, amt, status])
+                    pending_b2_top = None
+
+        # PROCESS B7
+        for blk in build_blocks(part_data["B7"]):
+            sr = blk[0]
+            code = blk[1] if len(blk) > 1 else ""
+            
+            amt_idx = next((i for i in range(len(blk)-1, 0, -1) if is_amount(blk[i])), -1)
+            if amt_idx != -1:
+                amt = blk[amt_idx]
+                count = blk[amt_idx-1] if (amt_idx > 0 and blk[amt_idx-1].isdigit()) else ""
+                end_idx = amt_idx - 1 if count else amt_idx
+            else:
+                amt, count, end_idx = "", "", len(blk)
+            
+            # FIXED: Perfect Separation for Multi-Line Descriptions
+            text_parts = blk[2 : end_idx] if len(blk) > 2 else []
+            if len(text_parts) > 1:
+                src = text_parts[-1]
+                desc = " ".join(text_parts[:-1])
+            elif len(text_parts) == 1:
+                desc = text_parts[0]
+                src = ""
+            else:
+                desc, src = "", ""
+                
+            b7_data.append([sr, code, desc, src, count, amt])
+
+        # PROCESS B3 
+        for blk in build_blocks(part_data["B3"]):
+            sr = blk[0]
+            fy_idx = next((i for i, x in enumerate(blk) if re.match(r'^20\d{2}-\d{2}$', x)), -1)
+            fy = blk[fy_idx] if fy_idx != -1 else (blk[1] if len(blk)>1 else "")
+            
+            date_idx = next((i for i, x in enumerate(blk) if re.match(r'^\d{2}/\d{2}/\d{4}', x)), -1)
+            
+            if date_idx != -1:
+                date = blk[date_idx]
+                bsr = blk[date_idx-1] if date_idx > 0 else ""
+                challan = blk[date_idx+1] if date_idx+1 < len(blk) else ""
+                cin = blk[date_idx+2] if date_idx+2 < len(blk) else ""
+                
+                middle_parts = blk[fy_idx+1 : date_idx-1] if fy_idx != -1 else blk[2 : date_idx-1]
+                
+                amts = []
+                text_end = len(middle_parts)
+                for i in range(len(middle_parts)-1, -1, -1):
+                    if is_amount(middle_parts[i]):
+                        amts.insert(0, middle_parts[i])
+                        text_end = i
+                    else:
                         break
-
-        # --- 2. EXTRACT NESTED TABLES (DYNAMIC BLOCK PARSING) ---
-        financial_transactions = []
-        tax_payments = []
-        
-        i = 0
-        current_part = "Unknown"
-        while i < len(all_lines):
-            line = all_lines[i]
-            line_up = line.upper()
-            
-            if "PART B1" in line_up or "PART B2" in line_up or "SPECIFIED FINANCIAL" in line_up or "PART B" in line_up:
-                current_part = "SFT/TDS"
-            if "PART B3" in line_up or "PAYMENT OF TAXES" in line_up:
-                current_part = "TAX_PAYMENT"
-                
-            # TRIGGER: Serial Number indicates a new transaction row
-            if line.isdigit() and 0 < len(line) < 4:
-                
-                # SFT / TDS Logic
-                if current_part in ["SFT/TDS", "Unknown"]:
-                    # Group the entire block until it hits "Active" or "Inactive"
-                    status_idx = -1
-                    for j in range(1, 20):
-                        if i+j < len(all_lines) and all_lines[i+j].upper() in ["ACTIVE", "INACTIVE"]:
-                            status_idx = j
-                            break
-                    
-                    if status_idx != -1:
-                        block = all_lines[i : i+status_idx+1]
-                        dates = [x for x in block if re.match(r'\d{2}/\d{2}/\d{4}', x)]
-                        amounts = [x for x in block if re.match(r'^-?(Rs\.?|₹)?\s*[\d,]+(\.\d+)?$', x) and len(x) > 1 and x != block[0]]
-                        info_codes = [x for x in block if "SFT-" in x or "TCS-" in x or "TDS-" in x]
                         
-                        financial_transactions.append({
-                            "SR. NO.": block[0],
-                            "Information Code": info_codes[0] if info_codes else (block[1] if len(block) > 1 else ""),
-                            "Description / Category": block[2] if len(block) > 2 else "",
-                            "Reported Date": dates[0] if dates else "",
-                            "Amount": amounts[-1] if amounts else "",
-                            "Status": block[-1],
-                            "Raw Data Block (For Reference)": " | ".join(block) # Captures everything safely
-                        })
-                        i += status_idx
-                        continue
+                amts = (["0", "0", "0", "0", "0"] + amts)[-5:]
+                tax, sur, cess, oth, tot = amts[0], amts[1], amts[2], amts[3], amts[4]
+                maj_min = " ".join(middle_parts[:text_end])
+            else:
+                cin = blk[-1] if len(blk)>2 and len(blk[-1])>10 else ""
+                challan = blk[-2] if len(blk)>3 and blk[-2].isdigit() else ""
+                amts = [x for x in blk if is_amount(x)]
+                amts = (["0", "0", "0", "0", "0"] + amts)[-5:]
+                tax, sur, cess, oth, tot = amts
+                maj_min = " ".join(blk[2: -len(amts)-2]) if len(blk) > 6 else ""
+                bsr, date = "", ""
+                
+            b3_data.append([sr, fy, maj_min, tax, sur, cess, oth, tot, bsr, date, challan, cin])
 
-                # Tax Payments Logic
-                elif current_part == "TAX_PAYMENT":
-                    # Check if next item is a Financial Year (e.g., 2024-25)
-                    if i+1 < len(all_lines) and re.match(r'\d{4}-\d{2}', all_lines[i+1]):
-                        block = all_lines[i : min(i+15, len(all_lines))]
-                        dates = [x for x in block if re.match(r'\d{2}/\d{2}/\d{4}', x)]
-                        date_val = dates[0] if dates else ""
-                        
-                        tax_payments.append({
-                            "SR. NO.": block[0],
-                            "Financial Year": block[1],
-                            "Major Head": block[2] if len(block) > 2 else "",
-                            "Minor Head": block[3] if len(block) > 3 else "",
-                            "Date of Deposit": date_val,
-                            "Raw Data Block (For Reference)": " | ".join(block)
-                        })
-                        try:
-                            date_idx = block.index(date_val)
-                            i += date_idx + 2 
-                        except:
-                            i += 12
-                        continue
-            i += 1
+        # --- 5. BUILD THE MASTER EXCEL TEMPLATE ---
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "AIS Master Form"
 
-        # --- 3. BUILD THE MULTI-TAB EXCEL FILE ---
-        general_df = pd.DataFrame(list(general_info.items()), columns=["Attribute", "Details"])
-        sft_df = pd.DataFrame(financial_transactions)
-        tax_df = pd.DataFrame(tax_payments)
-        raw_df = pd.DataFrame({"Raw Extracted Text": all_lines})
+        ws.append(["Part A - General Information"])
+        ws.append(["Permanent Account Number (PAN) :", general_info.get("PAN", "")])
+        ws.append(["Aadhaar Number:", general_info.get("Aadhaar Number", "")])
+        ws.append(["Name of Assessee:", general_info.get("Name of Assessee", "")])
+        ws.append(["Date of Birth:", general_info.get("Date of Birth", "")])
+        ws.append(["Mobile Number:", general_info.get("Mobile Number", "")])
+        ws.append(["E-mail Address:", general_info.get("Email Address", "")])
+        ws.append(["Address :", general_info.get("Address", "")])
+        ws.append([])
         
-        with pd.ExcelWriter(excel_path, engine="openpyxl") as writer:
-            general_df.to_excel(writer, sheet_name="General Information", index=False)
-            
-            if not sft_df.empty:
-                sft_df.to_excel(writer, sheet_name="SFT & TDS Transactions", index=False)
-            else:
-                pd.DataFrame([{"Data": "No SFT/TDS transactions found"}]).to_excel(writer, sheet_name="SFT & TDS Transactions", index=False)
-                
-            if not tax_df.empty:
-                tax_df.to_excel(writer, sheet_name="Tax Payments (Part B3)", index=False)
-            else:
-                pd.DataFrame([{"Data": "No tax payments found"}]).to_excel(writer, sheet_name="Tax Payments (Part B3)", index=False)
-                
-            raw_df.to_excel(writer, sheet_name="Raw Data Backup", index=False)
+        ws.append(["PART B( Annual Information Statement ):-"])
+        ws.append([])
 
-        print(f"✅ AIS Excel successfully mapped into 4 tabs! Saved to: {excel_path}")
-        return f"Successfully structured AIS data and saved Excel to: {excel_path}"
+        ws.append(["Part B1-Information relating to tax deducted or collected at source:"])
+        ws.append(["SR. NO.", "INFORMATION CODE", "INFORMATION DESCRIPTION", "INFORMATION SOURCE", "COUNT", "AMOUNT"])
+        for r in b1_top: ws.append(r)
+        ws.append([])
+        ws.append(["SR. NO.", "QUARTER", "DATE OF RECEIPT/ DEBIT", "AMOUNT RECEIVED/DEBITED", "TAX COLLECTED", "TCS DEPOSITED", "STATUS"])
+        for r in b1_bot: ws.append(r)
+        ws.append([])
+
+        ws.append(["Part B2-Information relating to specified financial transaction (SFT)::"])
+        ws.append(["SR. NO.", "INFORMATION CODE", "INFORMATION DESCRIPTION", "INFORMATION SOURCE", "COUNT", "AMOUNT", "SR. NO.", "REPORTED ON", "ACCOUNT NUMBER", "ACCOUNT TYPE", "INTEREST AMOUNT", "STATUS"])
+        for r in b2_data: ws.append(r)
+        ws.append([])
+
+        ws.append(["Part B7-Any other information in relation to sub-rule (2) of rule 114-I :-"])
+        ws.append(["SR. NO.", "INFORMATION CODE", "INFORMATION DESCRIPTION", "INFORMATION SOURCE", "COUNT", "AMOUNT"])
+        for r in b7_data: ws.append(r)
+        ws.append([])
+
+        ws.append(["Part B3-Information relating to payment of taxes:"])
+        ws.append(["SR. NO.", "FINANCIAL YEAR", "MAJOR HEAD MINOR HEAD", "TAX (A)", "SURCHARGE (B)", "EDUCATION CESS (C)", "OTHERS (D)", "TOTAL (A+B+C+D)", "BSR CODE", "DATE OF DEPOSIT", "CHALLAN SERIAL NUMBER", "CHALLAN IDENTIFICATION NUMBER"])
+        for r in b3_data: ws.append(r)
+
+        wb.save(excel_path)
+        print(f"✅ Master AIS Excel perfectly mapped! Saved to: {excel_path}")
+        return f"Successfully structured AIS data into single sheet layout at: {excel_path}"
 
     except Exception as e:
         print(f"❌ AIS Excel Conversion Crashed: {str(e)}")
@@ -208,14 +345,15 @@ def convert_ais_pdf_to_excel(pan_number: str, date_of_birth: str) -> str:
 
 @tool
 def convert_tis_pdf_to_excel(pan_number: str, date_of_birth: str) -> str:
-    """Unlock the TIS PDF, accurately extract General Info, Summary Tables, and Detailed Tables into Excel tabs."""
+    """Unlock the TIS PDF, intelligently map multi-line text, filter footers, and build the Master Excel layout."""
     import re
-    import pandas as pd
     import pymupdf
-    
+    import os
+    from openpyxl import Workbook
+
     save_dir = os.path.join(os.getcwd(), "client_data")
     pdf_path = os.path.join(save_dir, f"{pan_number}_tis.pdf")
-    excel_path = os.path.join(save_dir, f"{pan_number}_tis_structured.xlsx")
+    excel_path = os.path.join(save_dir, f"{pan_number}_tis_master_layout.xlsx")
     
     if not os.path.exists(pdf_path):
         return f"Action Failed: Could not find the TIS PDF at {pdf_path}."
@@ -228,111 +366,206 @@ def convert_tis_pdf_to_excel(pan_number: str, date_of_birth: str) -> str:
         doc = pymupdf.open(pdf_path)
         if doc.is_encrypted:
             if not doc.authenticate(pdf_password):
-                return f"❌ Action Failed: Password {pdf_password} rejected by the TIS PDF."
+                return f"❌ Action Failed: Password rejected by the TIS PDF."
                 
-        print("✅ TIS PDF Unlocked! Structuring data exactly like the portal...")
+        print("✅ TIS PDF Unlocked! Running Advanced Table Parser...")
+        raw_lines = [line.strip() for page in doc for line in page.get_text().split("\n") if line.strip()]
 
-        all_lines = []
-        for page in doc:
-            all_lines.extend([line.strip() for line in page.get_text().split("\n") if line.strip()])
-
-        # --- 1. EXTRACT GENERAL INFORMATION ---
-        general_info = {
-            "PAN": pan_number,
-            "Aadhaar Number": "",
-            "Name of Assessee": "",
-            "Date of Birth": "",
-            "Mobile Number": "",
-            "Email Address": "",
-            "Address": ""
-        }
-
-        for i, line in enumerate(all_lines):
-            line_up = line.upper()
-            if "AADHAAR NUMBER" in line_up and not general_info["Aadhaar Number"]:
-                general_info["Aadhaar Number"] = all_lines[i+1]
-            elif "NAME OF ASSESSEE" in line_up and not general_info["Name of Assessee"]:
-                general_info["Name of Assessee"] = all_lines[i+1]
-            elif "DATE OF BIRTH" in line_up and not general_info["Date of Birth"]:
-                general_info["Date of Birth"] = all_lines[i+1]
-            elif "MOBILE NUMBER" in line_up and not general_info["Mobile Number"]:
-                general_info["Mobile Number"] = all_lines[i+1]
-            elif ("E-MAIL ADDRESS" in line_up or "EMAIL ADDRESS" in line_up) and not general_info["Email Address"]:
-                general_info["Email Address"] = all_lines[i+1]
-            elif line_up == "ADDRESS" and not general_info["Address"]:
-                general_info["Address"] = all_lines[i+1]
-
-        # --- 2. EXTRACT TABLES (SUMMARY & DETAILS) ---
-        def is_amount(val):
+        def is_amount(val): 
             return bool(re.match(r'^-?(Rs\.?|₹)?\s*[\d,]+(\.\d+)?$', str(val).strip(), re.IGNORECASE))
 
-        summary_data = []
-        detail_data = []
+        # --- 1. AGGRESSIVE GARBAGE HEADER & FOOTER FILTER ---
+        garbage_headers = {
+            "SR. NO.", "INFORMATION CATEGORY", "PROCESSED BY SYSTEM",
+            "ACCEPTED BY TAXPAYER/CONFIRMED BY SOURCE", "ACCEPTED BY TAXPAYER/", 
+            "CONFIRMED BY SOURCE", "PART", "INFORMATION DESCRIPTION", 
+            "INFORMATION SOURCE", "AMOUNT DESCRIPTION", "REPORTED BY SOURCE",
+            "ACCEPTED BY TAXPAYER/ CONFIRMED BY SOURCE", "ACCEPTED BY", 
+            "TAXPAYER/CONFIRMED", "BY SOURCE", "PAN", "NAME", "FINANCIAL YEAR"
+        }
         
-        i = 0
-        while i < len(all_lines):
-            line = all_lines[i]
-            # Check if line is a Serial Number (1, 2, 3...)
-            if line.isdigit():
-                # DETAILED ROW (8 Columns) - Lookahead to check if next line is a 'PART' like SFT, TDS
-                if i + 7 < len(all_lines) and all_lines[i+1] in ["SFT", "TDS/TCS", "TDS", "TCS", "ADV", "SAST", "OTH"]:
-                    if is_amount(all_lines[i+5]) and is_amount(all_lines[i+6]):
-                        detail_data.append({
-                            "SR. NO.": line,
-                            "PART": all_lines[i+1],
-                            "INFORMATION DESCRIPTION": all_lines[i+2],
-                            "INFORMATION SOURCE": all_lines[i+3],
-                            "AMOUNT DESCRIPTION": all_lines[i+4],
-                            "REPORTED BY SOURCE": all_lines[i+5],
-                            "PROCESSED BY SYSTEM": all_lines[i+6],
-                            "ACCEPTED BY TAXPAYER": all_lines[i+7]
-                        })
-                        i += 7
-                        continue
-                
-                # SUMMARY ROW (4 Columns) - Lookahead to check if upcoming lines are amounts
-                elif i + 3 < len(all_lines):
-                    if is_amount(all_lines[i+2]) and is_amount(all_lines[i+3]):
-                        summary_data.append({
-                            "SR. NO.": line,
-                            "INFORMATION CATEGORY": all_lines[i+1],
-                            "PROCESSED BY SYSTEM": all_lines[i+2],
-                            "ACCEPTED BY TAXPAYER": all_lines[i+3]
-                        })
-                        i += 3
-                        continue
-            i += 1
+        all_lines = []
+        for line in raw_lines:
+            up = line.upper()
+            if up in garbage_headers: continue
+            if "DOWNLOAD ID :" in up or "IP ADDRESS :" in up or "GENERATION DATE :" in up or ("PAGE" in up and "OF" in up): continue
+            all_lines.append(line)
 
-        # --- 3. BUILD THE MULTI-TAB EXCEL FILE ---
-        general_df = pd.DataFrame(list(general_info.items()), columns=["Attribute", "Details"])
-        summary_df = pd.DataFrame(summary_data)
-        detail_df = pd.DataFrame(detail_data)
-        raw_df = pd.DataFrame({"Raw Extracted Text": all_lines})
-        
-        with pd.ExcelWriter(excel_path, engine="openpyxl") as writer:
-            # Tab 1: General Client Info
-            general_df.to_excel(writer, sheet_name="General Information", index=False)
+        # --- 2. EXTRACT GENERAL INFO ---
+        general_info = {
+            "PAN": pan_number, "Aadhaar Number": "", "Name of Assessee": "", 
+            "Date of Birth": "", "Mobile Number": "", "Email Address": "", "Address": ""
+        }
+        for i, line in enumerate(all_lines):
+            if not general_info["Aadhaar Number"] and ("XXXX" in line or len(re.sub(r'\D', '', line)) == 12) and len(line) >= 12:
+                if "AADHAAR" not in line.upper(): 
+                    general_info["Aadhaar Number"] = line
+                    if i + 1 < len(all_lines): general_info["Name of Assessee"] = all_lines[i+1]
+            elif not general_info["Date of Birth"] and re.match(r'^\d{2}/\d{2}/\d{4}$', line): general_info["Date of Birth"] = line
+            elif not general_info["Mobile Number"] and re.match(r'^\d{10}$', line): general_info["Mobile Number"] = line
+            elif not general_info["Email Address"] and "@" in line and "." in line: general_info["Email Address"] = line
+            elif not general_info["Address"] and line.upper() == "ADDRESS":
+                if i + 1 < len(all_lines): general_info["Address"] = all_lines[i+1]
+
+        # --- 3. THE SMART ROW BUILDER (FIXED TDS/TCS SPLITTING) ---
+        def is_tis_row_start(idx, lines):
+            val = lines[idx]
+            if not val.isdigit() or len(val) > 4: return False
+            if idx + 1 < len(lines):
+                nxt = lines[idx+1].upper().strip()
+                if nxt.startswith(("SFT", "TDS", "TCS", "ADV", "SAST", "OTH")): return True
+                if is_amount(nxt): return False 
+                if len(nxt) > 3: return True 
+            return False
+
+        blocks, temp = [], []
+        for i in range(len(all_lines)):
+            if is_tis_row_start(i, all_lines):
+                if temp: blocks.append(temp)
+                temp = [all_lines[i]]
+            elif temp:
+                temp.append(all_lines[i])
+        if temp: blocks.append(temp)
+
+        # --- 4. HIERARCHICAL TEXT PARSER ---
+        master_layout_data = []
+
+        for blk in blocks:
+            # Obliterate trailing Page Footers (PAN/Name) by cutting the block at the last amount
+            last_amt_idx = -1
+            for i in range(len(blk)-1, -1, -1):
+                if is_amount(blk[i]):
+                    last_amt_idx = i
+                    break
             
-            # Tab 2: High-Level Summary
-            if not summary_df.empty:
-                summary_df.to_excel(writer, sheet_name="TIS Summary", index=False)
+            if last_amt_idx == -1: continue 
+            blk = blk[:last_amt_idx+1] 
+
+            is_detail = any(x.upper().startswith(("SFT", "TDS", "TCS", "ADV", "SAST", "OTH")) for x in blk[:4])
+
+            if not is_detail:
+                # SUMMARY ROW
+                sr = blk[0]
+                amts = [x for x in blk if is_amount(x)]
+                amts = (["", ""] + amts)[-2:] 
+                
+                amt_start = len(blk)
+                for i in range(len(blk)-1, 0, -1):
+                    if is_amount(blk[i]): amt_start = i
+                    else: break
+                
+                category = " ".join(blk[1:amt_start])
+                master_layout_data.append({"type": "summary", "data": [sr, category, amts[0], amts[1]]})
+
             else:
-                pd.DataFrame([{"Data": "No Summary Data Found"}]).to_excel(writer, sheet_name="TIS Summary", index=False)
+                # DETAIL ROW
+                sr = blk[0]
+                part_idx = 1
+                part = ""
                 
-            # Tab 3: Detailed Bank & Source Info
-            if not detail_df.empty:
-                detail_df.to_excel(writer, sheet_name="TIS Detailed Breakdown", index=False)
-            
-            # Tab 4: Raw Backup
-            raw_df.to_excel(writer, sheet_name="Raw Data Backup", index=False)
+                # Identifies Part and stitches TDS/ and TCS back together
+                for i, x in enumerate(blk[:4]):
+                    if x.upper().startswith(("SFT", "TDS", "TCS", "ADV", "SAST", "OTH")):
+                        part = x
+                        part_idx = i
+                        if x.upper().strip() in ["TDS/", "TDS /", "TDS"] and i+1 < len(blk) and blk[i+1].upper().strip() in ["TCS", "/TCS", "/ TCS"]:
+                            part = "TDS/TCS"
+                            part_idx = i + 1
+                        break
+                if not part: 
+                    part = blk[1]
+                    part_idx = 1
+                
+                amts = [x for x in blk[part_idx+1:] if is_amount(x)]
+                amts = (["", "", ""] + amts)[-3:] 
+                
+                amt_start = len(blk)
+                for i in range(len(blk)-1, part_idx, -1):
+                    if is_amount(blk[i]): amt_start = i
+                    else: break
+                
+                text_parts = blk[part_idx+1 : amt_start]
+                
+                desc_end_idx = -1
+                for i, p in enumerate(text_parts):
+                    if "(SFT-" in p.upper() or "(U/S" in p.upper() or "(194" in p.upper() or "(192" in p.upper():
+                        desc_end_idx = i
+                        
+                source_end_idx = -1
+                for i in range(len(text_parts)-1, max(-1, desc_end_idx), -1):
+                    if re.search(r'\([A-Z0-9\.\-]{8,15}\)', p.upper()) and not "(U/S" in p.upper() and not "(SFT-" in p.upper():
+                        source_end_idx = i
+                        break
+                
+                if desc_end_idx != -1 and source_end_idx != -1:
+                    desc = " ".join(text_parts[:desc_end_idx+1])
+                    source = " ".join(text_parts[desc_end_idx+1:source_end_idx+1])
+                    amt_desc = " ".join(text_parts[source_end_idx+1:])
+                elif desc_end_idx != -1 and source_end_idx == -1:
+                    desc = " ".join(text_parts[:desc_end_idx+1])
+                    rem = text_parts[desc_end_idx+1:]
+                    if len(rem) >= 2:
+                        amt_desc = rem[-1]
+                        source = " ".join(rem[:-1])
+                    elif len(rem) == 1:
+                        source, amt_desc = rem[0], ""
+                    else:
+                        source, amt_desc = "", ""
+                else:
+                    if len(text_parts) >= 3:
+                        amt_desc = text_parts[-1]
+                        source = text_parts[-2]
+                        desc = " ".join(text_parts[:-2])
+                    elif len(text_parts) == 2:
+                        desc, source, amt_desc = text_parts[0], text_parts[1], ""
+                    elif len(text_parts) == 1:
+                        desc, source, amt_desc = text_parts[0], "", ""
+                    else:
+                        desc, source, amt_desc = "", "", ""
+                
+                master_layout_data.append({"type": "detail", "data": [sr, part, desc, source, amt_desc, amts[0], amts[1], amts[2]]})
 
-        print(f"✅ TIS Excel successfully mapped into 3 tabs! Saved to: {excel_path}")
-        return f"Successfully structured TIS data and saved Excel to: {excel_path}"
+        # --- 5. BUILD THE MASTER EXCEL TEMPLATE ---
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "TIS Master Form"
+
+        ws.append(["Part A - General Information"])
+        ws.append(["Permanent Account Number (PAN) :", general_info.get("PAN", "")])
+        ws.append(["Aadhaar Number:", general_info.get("Aadhaar Number", "")])
+        ws.append(["Name of Assessee:", general_info.get("Name of Assessee", "")])
+        ws.append(["Date of Birth:", general_info.get("Date of Birth", "")])
+        ws.append(["Mobile Number:", general_info.get("Mobile Number", "")])
+        ws.append(["E-mail Address:", general_info.get("Email Address", "")])
+        ws.append(["Address :", general_info.get("Address", "")])
+        ws.append([])
+        
+        ws.append(["PART B (Taxpayer Information Summary):-"])
+        ws.append([])
+
+        last_type = None
+        for row in master_layout_data:
+            if row["type"] == "summary":
+                if last_type in ["detail", "summary"]: ws.append([]) 
+                ws.append(["SR. NO.", "INFORMATION CATEGORY", "PROCESSED BY SYSTEM", "ACCEPTED BY TAXPAYER/CONFIRMED BY SOURCE"])
+                ws.append(row["data"])
+                last_type = "summary"
+                
+            elif row["type"] == "detail":
+                if last_type == "summary": 
+                    ws.append([])
+                    ws.append(["SR. NO.", "PART", "INFORMATION DESCRIPTION", "INFORMATION SOURCE", "AMOUNT DESCRIPTION", "REPORTED BY SOURCE", "PROCESSED BY SYSTEM", "ACCEPTED BY TAXPAYER/ CONFIRMED BY SOURCE"])
+                ws.append(row["data"])
+                last_type = "detail"
+
+        wb.save(excel_path)
+        print(f"✅ Master TIS Excel perfectly mapped! Saved to: {excel_path}")
+        return f"Successfully structured TIS data into single sheet layout at: {excel_path}"
 
     except Exception as e:
         print(f"❌ TIS Excel Conversion Crashed: {str(e)}")
         return f"Action Failed during TIS Excel conversion. Error: {str(e)}"
-
+    
 @tool
 def navigate_to_url(url: str) -> str:
     """Navigate the browser to a specified URL."""
@@ -693,7 +926,7 @@ def run_itr_bot(pan_number: str, password: str, date_of_birth:str):
         "53. Wait for 3 seconds so the CAPTCHA module fully loads.\n"
         "54. You MUST strictly use the handle_captcha tool with img_selector '#captcahCanvas' and input_selector '#captchaInput'.\n"
         "55. Wait for 2 seconds to ensure the CAPTCHA text is fully registered.\n"
-        f"56. Use the download_file tool to click 'Proceed' and save the file as '{pan_number}_ais.json'."
+        f"56. Use the download_file tool to click 'Proceed' and save the file as '{pan_number}_ais.json'.\n"
 
         # --- PHASE 4: DOWNLOAD TIS PDF & CONVERT TO EXCEL ---
         "57. Use the click_element tool with selector_or_text 'button:has-text(\"AIS/TIS\")' to reopen the download modal.\n"
@@ -728,7 +961,9 @@ def run_itr_bot(pan_number: str, password: str, date_of_birth:str):
             messages.append(ToolMessage(content=str(tool_output), tool_call_id=tool_id))
 
     print("\n✅ Final Agent Response: ITR Data Successfully Downloaded!")
-    print("⏳ Keeping the browser open for 10 minutes...")
-    time.sleep(600)
+    
+    # REMOVE OR COMMENT OUT THESE TWO LINES:
+    # print("⏳ Keeping the browser open for 10 minutes...")
+    # time.sleep(600) 
     
     return "ITR filling process has been initiated successfully and data is downloaded."

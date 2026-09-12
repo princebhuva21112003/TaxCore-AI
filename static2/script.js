@@ -3,7 +3,7 @@ const ctx = canvas.getContext('2d');
 let width, height, centerX, centerY;
 
 // --- Camera & View State ---
-let viewState = 'main'; 
+let viewState = 'main';
 let activeCategory = null;
 let globalAlpha = 1.0;
 let transitioning = false;
@@ -21,45 +21,45 @@ const categories = [
 ];
 
 const treeData = {
-    "CA BRAIN": 
-       [
-  { 
-    id: "T1", 
-    label: "Financial Reporting", 
-    icon: "📊", 
-    desc: "AI-driven Ind AS compliance pipeline, intelligent consolidation of multi-entity financial statements, and automated variance analysis." 
-  },
-  { 
-    id: "T2", 
-    label: "Advanced Financial Management", 
-    icon: "📈", 
-    desc: "Algorithmic portfolio optimization, automated forex risk hedging, and machine learning-powered cash flow forecasting models." 
-  },
-  { 
-    id: "T3", 
-    label: "Advanced Auditing, Assurance and Professional Ethics", 
-    icon: "🔍", 
-    desc: "LLM-based anomaly detection in ledger entries, automated substantive testing, and continuous compliance and risk monitoring." 
-  },
-  { 
-    id: "T4", 
-    label: "Direct Tax Laws & International Taxation", 
-    icon: "🏛️", 
-    desc: "Intelligent Form 26AS/AIS parsing, automated transfer pricing analysis, and deduction maximization agent choosing the optimal tax regime." 
-  },
-  { 
-    id: "T5", 
-    label: "Indirect Tax Laws", 
-    icon: "🧾", 
-    desc: "Agentic pipeline for GSTR-1 & 3B calculation, automated E-way bill generation, and smart reconciliation of GSTR-2B vs Purchase Register." 
-  },
-  { 
-    id: "T6", 
-    label: "Integrated Business Solution", 
-    icon: "🧩", 
-    desc: "Multi-agent orchestration cross-referencing tax, audit, and financial data to generate holistic business strategies and boardroom-ready reports." 
-  }
-   ],
+    "CA BRAIN":
+        [
+            {
+                id: "T1",
+                label: "Financial Reporting",
+                icon: "📊",
+                desc: "AI-driven Ind AS compliance pipeline, intelligent consolidation of multi-entity financial statements, and automated variance analysis."
+            },
+            {
+                id: "T2",
+                label: "Advanced Financial Management",
+                icon: "📈",
+                desc: "Algorithmic portfolio optimization, automated forex risk hedging, and machine learning-powered cash flow forecasting models."
+            },
+            {
+                id: "T3",
+                label: "Advanced Auditing, Assurance and Professional Ethics",
+                icon: "🔍",
+                desc: "LLM-based anomaly detection in ledger entries, automated substantive testing, and continuous compliance and risk monitoring."
+            },
+            {
+                id: "T4",
+                label: "Direct Tax Laws & International Taxation",
+                icon: "🏛️",
+                desc: "Intelligent Form 26AS/AIS parsing, automated transfer pricing analysis, and deduction maximization agent choosing the optimal tax regime."
+            },
+            {
+                id: "T5",
+                label: "Indirect Tax Laws",
+                icon: "🧾",
+                desc: "Agentic pipeline for GSTR-1 & 3B calculation, automated E-way bill generation, and smart reconciliation of GSTR-2B vs Purchase Register."
+            },
+            {
+                id: "T6",
+                label: "Integrated Business Solution",
+                icon: "🧩",
+                desc: "Multi-agent orchestration cross-referencing tax, audit, and financial data to generate holistic business strategies and boardroom-ready reports."
+            }
+        ],
     "AUDITING": [
         { id: "A1", label: "Deep Ledger Audit", icon: "🔍", desc: "RAG agent verifying line items against bank feeds to flag unmatched transactions." },
         { id: "A2", label: "Fraud & Anomaly Bot", icon: "🚨", desc: "Machine learning scanning for duplicate claims, fake GSTIN vendors, and circular trading." },
@@ -91,7 +91,7 @@ const treeData = {
 let backgroundStars = [];
 let mainNodes = [], mainLinks = [];
 let treeNodes = [], treeLinks = [], treeArcs = [];
-let dataParticles = []; 
+let dataParticles = [];
 
 let mouse = { x: 0, y: 0, hoverNode: null };
 window.addEventListener('mousemove', (e) => { mouse.x = e.clientX; mouse.y = e.clientY; });
@@ -110,7 +110,7 @@ function resize() {
     canvas.width = width; canvas.height = height;
     centerX = width / 2; centerY = height / 2;
     buildMainGraph();
-    if(viewState === 'tree') buildTreeGraph(activeCategory);
+    if (viewState === 'tree') buildTreeGraph(activeCategory);
 }
 window.addEventListener('resize', resize);
 
@@ -121,7 +121,7 @@ function startZoomTransition(node) {
     transitioning = true;
     let startZoom = camera.zoom;
     let targetZoom = 5; // How deep the zoom goes
-    let duration = 900; 
+    let duration = 900;
     let startTime = performance.now();
     let startCamX = camera.x;
     let startCamY = camera.y;
@@ -129,12 +129,12 @@ function startZoomTransition(node) {
     function animateZoom(time) {
         let elapsed = time - startTime;
         let t = Math.min(elapsed / duration, 1);
-        
+
         // Cubic ease-in-out for smooth camera movement
         let ease = t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
 
         camera.zoom = startZoom + (targetZoom - startZoom) * ease;
-        
+
         // Dynamically track the node as it orbits
         let currentTargetX = node.x - centerX;
         let currentTargetY = node.y - centerY;
@@ -155,16 +155,16 @@ function startZoomTransition(node) {
             viewState = 'tree';
             activeCategory = node.label;
             buildTreeGraph(activeCategory);
-            
+
             // Reset camera for tree view
             camera.x = 0;
             camera.y = 0;
             camera.zoom = 1;
-            
+
             document.getElementById('backBtn').style.display = 'flex';
             document.getElementById('sideLeft').style.display = 'block';
             document.getElementById('sideRight').style.display = 'block';
-            dataParticles = []; 
+            dataParticles = [];
 
             fadeIn(600);
         }
@@ -192,7 +192,7 @@ function fadeIn(duration = 500) {
 function setState(newState) {
     if (newState === viewState || transitioning) return;
     transitioning = true;
-    
+
     let startAlpha = globalAlpha;
     let fadeOutTime = performance.now();
 
@@ -200,7 +200,7 @@ function setState(newState) {
         let elapsed = time - fadeOutTime;
         let t = Math.min(elapsed / 400, 1);
         globalAlpha = startAlpha * (1 - t);
-        
+
         if (t < 1) {
             requestAnimationFrame(animateBack);
         } else {
@@ -232,54 +232,54 @@ function closeModal() {
 function buildMainGraph() {
     mainNodes = []; mainLinks = [];
     const coreNodes = [];
-    
-    for(let i=0; i<60; i++) {
+
+    for (let i = 0; i < 60; i++) {
         let angle = Math.random() * Math.PI * 2;
         let dist = Math.random() * 35; // slightly wider core
         let c = categories[Math.floor(Math.random() * categories.length)].hex;
         let node = {
-            id: 'core_'+i, type: 'core', groupId: 'core',
+            id: 'core_' + i, type: 'core', groupId: 'core',
             baseX: Math.cos(angle) * dist, baseY: Math.sin(angle) * dist,
             color: c, radius: Math.random() * 1.5 + 1.0, speed: Math.random() * 0.015
         };
         mainNodes.push(node);
         coreNodes.push(node);
     }
-    for(let i=0; i<30; i++) {
-        mainLinks.push({ 
-            source: coreNodes[Math.floor(Math.random()*coreNodes.length)], 
-            target: coreNodes[Math.floor(Math.random()*coreNodes.length)], 
+    for (let i = 0; i < 30; i++) {
+        mainLinks.push({
+            source: coreNodes[Math.floor(Math.random() * coreNodes.length)],
+            target: coreNodes[Math.floor(Math.random() * coreNodes.length)],
             color: 'rgba(255,255,255,0.05)', isCore: true
         });
     }
 
     // Increased radius sizes for a "zoomed in" initial look
-    const radiusCategory = Math.min(width, height) * 0.30; 
+    const radiusCategory = Math.min(width, height) * 0.30;
     const angleStep = (Math.PI * 2) / categories.length;
 
     categories.forEach((cat, index) => {
         let initialAngle = index * angleStep - (Math.PI / 2);
-        let groupId = 'cat_'+index;
-        
+        let groupId = 'cat_' + index;
+
         let catNode = {
             id: groupId, groupId: groupId, type: 'category', label: cat.id, sub: cat.sub, color: cat.hex,
-            angleOffset: initialAngle, orbitRadius: radiusCategory, 
-            radius: 20, hoverRadius: 26, targetOpacity: 1.0, currentOpacity: 1.0 
+            angleOffset: initialAngle, orbitRadius: radiusCategory,
+            radius: 20, hoverRadius: 26, targetOpacity: 1.0, currentOpacity: 1.0
         };
         mainNodes.push(catNode);
-        
-        mainLinks.push({ source: coreNodes[Math.floor(Math.random()*coreNodes.length)], target: catNode, color: 'rgba(255,255,255,0.15)', isCore: false });
+
+        mainLinks.push({ source: coreNodes[Math.floor(Math.random() * coreNodes.length)], target: catNode, color: 'rgba(255,255,255,0.15)', isCore: false });
 
         let numBranches = 3 + Math.floor(Math.random() * 2);
         let branchSpread = 0.5;
-        
-        for(let b=0; b<numBranches; b++) {
-            let bAngleOffset = initialAngle + (b - (numBranches-1)/2) * (branchSpread / numBranches);
+
+        for (let b = 0; b < numBranches; b++) {
+            let bAngleOffset = initialAngle + (b - (numBranches - 1) / 2) * (branchSpread / numBranches);
             let bDist = radiusCategory + 60 + Math.random() * 25; // pushed further out
 
             let branchNode = {
                 id: `branch_${index}_${b}`, groupId: groupId, type: 'branch', parent: catNode,
-                angleOffset: bAngleOffset, orbitRadius: bDist, 
+                angleOffset: bAngleOffset, orbitRadius: bDist,
                 color: cat.hex, radius: 2.5, isOutline: true,
                 targetOpacity: 1.0, currentOpacity: 1.0
             };
@@ -288,15 +288,15 @@ function buildMainGraph() {
 
             let numLeaves = 1 + Math.floor(Math.random() * 3);
             let leafSpread = 0.25;
-            
-            for(let l=0; l<numLeaves; l++) {
-                let lAngleOffset = bAngleOffset + (l - (numLeaves-1)/2) * (leafSpread / (numLeaves||1));
+
+            for (let l = 0; l < numLeaves; l++) {
+                let lAngleOffset = bAngleOffset + (l - (numLeaves - 1) / 2) * (leafSpread / (numLeaves || 1));
                 lAngleOffset += (Math.random() - 0.5) * 0.08;
                 let lDist = bDist + 40 + Math.random() * 25; // pushed further out
 
                 let leafNode = {
                     id: `leaf_${index}_${b}_${l}`, groupId: groupId, type: 'leaf', parent: branchNode,
-                    angleOffset: lAngleOffset, orbitRadius: lDist, 
+                    angleOffset: lAngleOffset, orbitRadius: lDist,
                     color: Math.random() > 0.3 ? '#ffffff' : cat.hex, radius: 1.8, isOutline: Math.random() > 0.5,
                     targetOpacity: 1.0, currentOpacity: 1.0
                 };
@@ -313,7 +313,7 @@ function buildTreeGraph(category) {
 
     let rootNode = {
         id: 'treeRoot', type: 'treeRoot', label: category, sub: "automated agent pipelines",
-        x: centerX, y: height - 100, radius: 24, color: '#f59e0b' 
+        x: centerX, y: height - 100, radius: 24, color: '#f59e0b'
     };
     treeNodes.push(rootNode);
 
@@ -322,7 +322,7 @@ function buildTreeGraph(category) {
 
     let items = treeData[category] || treeData["DEFAULT"];
     let numItems = items.length;
-    let angleStart = Math.PI * 1.15; 
+    let angleStart = Math.PI * 1.15;
     let angleEnd = Math.PI * 1.85;
     let angleStep = (angleEnd - angleStart) / (numItems - 1 || 1);
 
@@ -334,13 +334,13 @@ function buildTreeGraph(category) {
 
         let childNode = {
             id: item.id, type: 'treeChild', label: item.label, icon: item.icon, desc: item.desc,
-            x: nx, y: ny, radius: 22, hoverRadius: 26, color: '#f8fafc' 
+            x: nx, y: ny, radius: 22, hoverRadius: 26, color: '#f8fafc'
         };
         treeNodes.push(childNode);
         treeLinks.push({ source: rootNode, target: childNode, color: 'rgba(255,255,255,0.2)' });
 
         let numSubs = 1 + Math.floor(Math.random() * 2);
-        for(let s=0; s<numSubs; s++) {
+        for (let s = 0; s < numSubs; s++) {
             let subAngle = angle + (Math.random() - 0.5) * 0.4;
             let subRadius = rDist + 55;
             let snx = rootNode.x + Math.cos(subAngle) * subRadius;
@@ -356,7 +356,7 @@ function buildTreeGraph(category) {
     });
 }
 
-for(let i=0; i<400; i++) {
+for (let i = 0; i < 400; i++) {
     backgroundStars.push({
         x: Math.random() * window.innerWidth, y: Math.random() * window.innerHeight,
         radius: Math.random() * 1.5, opacity: Math.random() * 0.6 + 0.1
@@ -393,13 +393,13 @@ function animate() {
         let mouseOffsetX = (mouse.x - centerX) * 0.02;
         let mouseOffsetY = (mouse.y - centerY) * 0.02;
 
-        let activeGroupId = null; 
+        let activeGroupId = null;
         // Detect Hover in World Space
         mainNodes.forEach(node => {
             if (node.type !== 'core') {
                 let dx = worldMouseX - node.x, dy = worldMouseY - node.y;
                 let r = node.type === 'category' ? node.hoverRadius : node.radius * 3;
-                if (Math.sqrt(dx*dx + dy*dy) < r) {
+                if (Math.sqrt(dx * dx + dy * dy) < r) {
                     mouse.hoverNode = node;
                     activeGroupId = node.groupId;
                 }
@@ -407,9 +407,9 @@ function animate() {
         });
 
         mainNodes.forEach(node => {
-            if (node.type === 'core') return; 
+            if (node.type === 'core') return;
             if (activeGroupId === null) {
-                node.targetOpacity = 1.0; 
+                node.targetOpacity = 1.0;
             } else {
                 node.targetOpacity = (node.groupId === activeGroupId) ? 1.0 : 0.15;
             }
@@ -419,7 +419,7 @@ function animate() {
         mainNodes.forEach(node => {
             if (node.type === 'core') {
                 let angle = globalTime * node.speed + parseInt(node.id.split('_')[1]);
-                let dist = Math.sqrt(node.baseX*node.baseX + node.baseY*node.baseY);
+                let dist = Math.sqrt(node.baseX * node.baseX + node.baseY * node.baseY);
                 node.x = centerX + Math.cos(angle) * dist - mouseOffsetX;
                 node.y = centerY + Math.sin(angle) * dist - mouseOffsetY;
             } else if (node.type === 'category' || node.type === 'branch' || node.type === 'leaf') {
@@ -432,13 +432,13 @@ function animate() {
         // Generate Data Particles
         if (Math.random() < 0.04) {
             let validLinks = mainLinks.filter(l => !l.isCore);
-            if(validLinks.length > 0) {
+            if (validLinks.length > 0) {
                 let link = validLinks[Math.floor(Math.random() * validLinks.length)];
                 dataParticles.push({
-                    source: link.source, 
-                    target: link.target, 
+                    source: link.source,
+                    target: link.target,
                     progress: 0,
-                    speed: 0.01 + Math.random() * 0.005, 
+                    speed: 0.01 + Math.random() * 0.005,
                     color: link.target.color || '#ffffff'
                 });
             }
@@ -447,13 +447,13 @@ function animate() {
         // Draw Main Links
         mainLinks.forEach(link => {
             ctx.beginPath(); ctx.moveTo(link.source.x, link.source.y); ctx.lineTo(link.target.x, link.target.y);
-            
-            if(link.isCore) {
-                ctx.strokeStyle = link.color; 
+
+            if (link.isCore) {
+                ctx.strokeStyle = link.color;
             } else {
                 let op = link.target.currentOpacity;
                 let rgb = link.color.substring(0, link.color.lastIndexOf(','));
-                ctx.strokeStyle = `${rgb}, ${op * 0.25})`; 
+                ctx.strokeStyle = `${rgb}, ${op * 0.25})`;
             }
             ctx.lineWidth = 1; ctx.stroke();
         });
@@ -462,9 +462,9 @@ function animate() {
         for (let i = dataParticles.length - 1; i >= 0; i--) {
             let p = dataParticles[i];
             p.progress += p.speed;
-            
+
             if (p.progress >= 1) {
-                dataParticles.splice(i, 1); 
+                dataParticles.splice(i, 1);
                 continue;
             }
 
@@ -479,13 +479,13 @@ function animate() {
             ctx.shadowBlur = 10;
             ctx.shadowColor = p.color;
             ctx.fill();
-            ctx.shadowBlur = 0; 
-            ctx.globalAlpha = 1.0; 
+            ctx.shadowBlur = 0;
+            ctx.globalAlpha = 1.0;
         }
 
         // Draw Main Nodes
         mainNodes.forEach(node => {
-            if(node.type !== 'core') {
+            if (node.type !== 'core') {
                 ctx.globalAlpha = node.currentOpacity;
             }
 
@@ -494,7 +494,7 @@ function animate() {
             let rad = (isHovered && node.type === 'category') ? node.hoverRadius : node.radius;
 
             ctx.arc(node.x, node.y, rad, 0, Math.PI * 2);
-            
+
             if (node.isOutline) {
                 ctx.strokeStyle = node.color; ctx.lineWidth = 1.5; ctx.stroke();
             } else {
@@ -511,9 +511,9 @@ function animate() {
                 ctx.textAlign = "center";
                 let dx = node.x - centerX;
                 let dy = node.y - centerY;
-                let dist = Math.sqrt(dx*dx + dy*dy);
+                let dist = Math.sqrt(dx * dx + dy * dy);
                 let pushFactor = 45;
-                
+
                 let textX = node.x + (dx / dist) * pushFactor;
                 let textY = node.y + (dy / dist) * pushFactor;
 
@@ -521,12 +521,12 @@ function animate() {
                 ctx.fillStyle = isHovered ? node.color : "#ffffff";
                 ctx.letterSpacing = "2px";
                 ctx.fillText(node.label, textX, textY);
-                
+
                 ctx.font = "400 9px 'Inter', sans-serif";
                 ctx.fillStyle = "rgba(255, 255, 255, 0.4)";
                 ctx.fillText(node.sub, textX, textY + 14);
             }
-            ctx.globalAlpha = 1.0; 
+            ctx.globalAlpha = 1.0;
         });
     }
 
@@ -544,14 +544,14 @@ function animate() {
         treeNodes.forEach(node => {
             if (node.type === 'treeChild') {
                 let dx = worldMouseX - node.x, dy = worldMouseY - node.y;
-                if (Math.sqrt(dx*dx + dy*dy) < node.hoverRadius) mouse.hoverNode = node;
+                if (Math.sqrt(dx * dx + dy * dy) < node.hoverRadius) mouse.hoverNode = node;
             }
 
             let isHovered = mouse.hoverNode === node;
             let rad = isHovered ? node.hoverRadius : node.radius;
 
             ctx.beginPath(); ctx.arc(node.x, node.y, rad, 0, Math.PI * 2);
-            
+
             if (node.type === 'treeRoot') {
                 ctx.strokeStyle = node.color; ctx.lineWidth = 2; ctx.stroke();
                 ctx.textAlign = "center";
@@ -566,17 +566,17 @@ function animate() {
                 ctx.font = "14px Arial"; ctx.fillStyle = "#000000";
                 ctx.fillText(node.icon, node.x, node.y);
 
-                ctx.beginPath(); ctx.arc(node.x + rad + 2, node.y - rad - 2, 4, 0, Math.PI*2);
+                ctx.beginPath(); ctx.arc(node.x + rad + 2, node.y - rad - 2, 4, 0, Math.PI * 2);
                 ctx.fillStyle = '#f59e0b'; ctx.fill();
 
                 ctx.textBaseline = "alphabetic";
                 ctx.font = "600 11px 'Cinzel', serif"; ctx.fillStyle = isHovered ? "#f59e0b" : "rgba(255,255,255,0.7)";
                 ctx.letterSpacing = "2px";
                 ctx.fillText(node.label, node.x, node.y - rad - 14);
-                
+
             } else if (node.type === 'treeDeco') {
                 ctx.strokeStyle = node.outline; ctx.lineWidth = 1; ctx.stroke();
-                ctx.beginPath(); ctx.arc(node.x, node.y, 1.5, 0, Math.PI*2);
+                ctx.beginPath(); ctx.arc(node.x, node.y, 1.5, 0, Math.PI * 2);
                 ctx.fillStyle = '#f59e0b'; ctx.fill();
             }
         });
@@ -592,16 +592,16 @@ function animate() {
 // --- Chatbot Logic ---
 
 // Replace this with your actual FastAPI endpoint URL
-const FASTAPI_URL = "http://127.0.0.1:8000/chat"; 
+const FASTAPI_URL = "http://127.0.0.1:8000/chat";
 
 function openChat() {
     // Hide the modal
     document.getElementById('detailModal').style.display = 'none';
-    
+
     // Update chat header with the module name they clicked
     const moduleName = document.getElementById('modalTitle').innerText;
     document.getElementById('chatAgentName').innerText = moduleName + " Agent";
-    
+
     // Slide in the chat sidebar
     document.getElementById('chatSidebar').classList.add('active');
 }
@@ -637,16 +637,16 @@ async function sendMessage() {
         const response = await fetch(FASTAPI_URL, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ message: message }) 
+            body: JSON.stringify({ message: message })
         });
 
         const data = await response.json();
-        
+
         // 4. Remove loading text and append actual AI response
         document.getElementById(loadingId).remove();
-        
+
         const aiResponseText = data.reply || data.response;
-        appendMessage(aiResponseText, 'ai-message'); 
+        appendMessage(aiResponseText, 'ai-message');
 
         // 5. Speak the response out loud!
         speakText(aiResponseText);
@@ -663,7 +663,7 @@ async function sendMessage() {
 
 const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 let recognition;
-let isSessionActive = false; 
+let isSessionActive = false;
 let silenceTimer = null;
 const SILENCE_DELAY = 2000; // 2 seconds of silence triggers auto-send
 let accumulatedSpeech = "";
@@ -710,9 +710,9 @@ if (SpeechRecognition) {
 
     recognition.onresult = async (event) => {
         clearTimeout(silenceTimer);
-        
+
         let interimTranscript = '';
-        accumulatedSpeech = ''; 
+        accumulatedSpeech = '';
 
         for (let i = event.resultIndex; i < event.results.length; ++i) {
             if (event.results[i].isFinal) {
@@ -725,15 +725,15 @@ if (SpeechRecognition) {
         // Apply formatting (like changing "at the rate" to "@")
         let currentText = accumulatedSpeech + interimTranscript;
         currentText = formatSpeechText(currentText);
-        
+
         document.getElementById('userInput').value = currentText;
 
         // 1. CHECK FOR THE WORD "STOP"
         if (/\bstop\b/i.test(currentText)) {
             let finalCleanText = currentText.replace(/\bstop\b/gi, '').trim();
             document.getElementById('userInput').value = finalCleanText;
-            
-            isSessionActive = false; 
+
+            isSessionActive = false;
             recognition.stop();
             resetMicButton();
             window.speechSynthesis.cancel(); // Stop bot if speaking
@@ -741,17 +741,17 @@ if (SpeechRecognition) {
             if (finalCleanText.length > 0) {
                 sendMessage(finalCleanText);
             }
-            return; 
+            return;
         }
 
         // 2. DETECT PAUSE & AUTO-SEND
         silenceTimer = setTimeout(() => {
             let finalMsg = document.getElementById('userInput').value.trim();
             if (finalMsg.length > 0) {
-                recognition.stop(); 
+                recognition.stop();
                 document.getElementById('userInput').value = '';
                 accumulatedSpeech = '';
-                sendMessage(finalMsg); 
+                sendMessage(finalMsg);
             }
         }, SILENCE_DELAY);
     };
@@ -760,7 +760,7 @@ if (SpeechRecognition) {
         console.error('Speech recognition error', event.error);
         if (!isSessionActive) resetMicButton();
     };
-    
+
     recognition.onend = () => {
         if (!isSessionActive) {
             resetMicButton();
@@ -774,7 +774,7 @@ if (SpeechRecognition) {
 function startMicSafe() {
     try {
         if (isSessionActive) recognition.start();
-    } catch (e) {}
+    } catch (e) { }
 }
 
 function toggleRecording() {
@@ -782,9 +782,9 @@ function toggleRecording() {
         alert("Your browser doesn't support the Web Speech API.");
         return;
     }
-    
+
     const micBtn = document.getElementById('micBtn');
-    
+
     // INTERRUPT FEATURE: If bot is talking, clicking Mic stops it & listens immediately!
     if (window.speechSynthesis.speaking) {
         window.speechSynthesis.cancel();
@@ -796,23 +796,23 @@ function toggleRecording() {
         micBtn.innerHTML = '<i class="fas fa-stop-circle"></i>';
         return;
     }
-    
+
     if (!isSessionActive) {
         isSessionActive = true;
         accumulatedSpeech = "";
         document.getElementById('userInput').value = "";
         window.speechSynthesis.cancel();
-        
+
         startMicSafe();
-        
+
         micBtn.classList.add('recording');
-        micBtn.innerHTML = '<i class="fas fa-stop-circle"></i>'; 
+        micBtn.innerHTML = '<i class="fas fa-stop-circle"></i>';
     } else {
         isSessionActive = false;
         recognition.stop();
         resetMicButton();
         clearTimeout(silenceTimer);
-        
+
         let finalMsg = document.getElementById('userInput').value.trim();
         if (finalMsg) sendMessage(finalMsg);
     }
@@ -820,9 +820,9 @@ function toggleRecording() {
 
 function resetMicButton() {
     const micBtn = document.getElementById('micBtn');
-    if(micBtn) {
+    if (micBtn) {
         micBtn.classList.remove('recording');
-        micBtn.innerHTML = '<i class="fas fa-microphone"></i>'; 
+        micBtn.innerHTML = '<i class="fas fa-microphone"></i>';
     }
     isSessionActive = false;
 }
@@ -833,7 +833,7 @@ async function sendMessage(overrideText = null) {
     if (!message) return;
 
     appendMessage(message, 'user-message');
-    if (overrideText === null) inputField.value = ''; 
+    if (overrideText === null) inputField.value = '';
 
     // Instantly stop current voice if you send a new message
     window.speechSynthesis.cancel();
@@ -843,7 +843,7 @@ async function sendMessage(overrideText = null) {
         const response = await fetch(FASTAPI_URL, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ message: message }) 
+            body: JSON.stringify({ message: message })
         });
 
         // 1. Remove "Thinking..." safely
@@ -856,18 +856,18 @@ async function sendMessage(overrideText = null) {
         }
 
         const data = await response.json();
-        
+
         // 3. Display the response safely
         const aiResponseText = data.reply || data.response || "Sorry, I received an empty response from the database.";
-        appendMessage(aiResponseText, 'ai-message'); 
-        
+        appendMessage(aiResponseText, 'ai-message');
+
         speakText(aiResponseText);
 
     } catch (error) {
         console.error("Backend Error:", error);
         const loadingElement = document.getElementById(loadingId);
         if (loadingElement) loadingElement.remove();
-        
+
         appendMessage("⚠️ Error: Check your Uvicorn terminal! The backend failed to respond.", 'ai-message');
         startMicSafe();
     }
@@ -875,22 +875,22 @@ async function sendMessage(overrideText = null) {
 
 function speakText(text) {
     if (!text) {
-        startMicSafe(); 
+        startMicSafe();
         return;
     }
-    
+
     window.speechSynthesis.cancel();
-    
+
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.lang = 'en-US';
-    utterance.rate = 1.05; 
-    
-    utterance.onend = function() {
+    utterance.rate = 1.05;
+
+    utterance.onend = function () {
         if (isSessionActive) {
             startMicSafe();
         }
     };
-    
+
     window.speechSynthesis.speak(utterance);
 }
 
@@ -898,29 +898,52 @@ function appendMessage(text, className) {
     const chatBox = document.getElementById('chatBox');
     const msgDiv = document.createElement('div');
     const uniqueId = 'msg-' + Date.now(); // Create unique ID for manipulating later
-    
+
     msgDiv.id = uniqueId;
     msgDiv.className = `message ${className}`;
     msgDiv.innerText = text;
-    
+
     chatBox.appendChild(msgDiv);
-    
+
     // Auto-scroll to bottom
     chatBox.scrollTop = chatBox.scrollHeight;
-    
+
     return uniqueId;
 }
 // Poll backend for CAPTCHA
+let currentCaptchaImage = "";
+let isDownloadComplete = false;
+
+// Poll backend for CAPTCHA and Download Status
 setInterval(async () => {
     try {
+        // --- 1. CAPTCHA LOGIC (Keeps your browser able to solve CAPTCHAs) ---
         let res = await fetch("http://127.0.0.1:8000/check-captcha");
         let data = await res.json();
-        
-        if (data.image && !document.getElementById("captcha-ui")) {
-            showCaptchaUI(data.image);
+
+        if (data.image) {
+            // Only render if it is a NEW image we haven't shown yet (prevents duplicates)
+            if (data.image !== currentCaptchaImage) {
+                currentCaptchaImage = data.image;
+                showCaptchaUI(data.image);
+            }
+        } else {
+            currentCaptchaImage = ""; // Reset when backend clears it
+        }
+
+        // --- 2. AUTO-QUESTION LOGIC (Triggers the Profession question when ready) ---
+        if (!isDownloadComplete) {
+            let statusRes = await fetch("http://127.0.0.1:8000/check-download-status");
+            let statusData = await statusRes.json();
+
+            if (statusData.status === "ready") {
+                isDownloadComplete = true;
+                appendMessage(statusData.message, 'ai-message');
+                speakText(statusData.message);
+            }
         }
     } catch (e) {
-        console.error("CAPTCHA fetch error:", e); // This will reveal the error in Inspect -> Console
+        console.error("Polling error:", e);
     }
 }, 2000);
 
@@ -943,7 +966,7 @@ function showCaptchaUI(base64Image) {
 
 async function submitCaptcha() {
     const text = document.getElementById("captchaInputText").value.trim();
-    if(!text) return;
+    if (!text) return;
 
     document.getElementById("captcha-ui").innerHTML = "<em style='color:#34d399;'>CAPTCHA submitted. Resuming automation...</em>";
     document.getElementById("captcha-ui").removeAttribute("id");
